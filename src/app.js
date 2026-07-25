@@ -289,6 +289,20 @@
 
       ${goalCard()}
 
+      ${(() => {
+        const st = S.sweepStat();
+        const easy = (st.byLevel[1] || 0) + (st.byLevel[2] || 0);
+        if (!st.unseen) return '';
+        return `<div class="card sweepcard">
+          <h2>⚡ 先把「本來就會的字」篩掉</h2>
+          <p class="muted">詞彙表裡很多字你小學就會了，不需要當新字學。一次看 12 個字、<b>只點掉不會的</b>，
+            剩下的直接算已會（會抽考 2 個確認，之後也照樣進複習抽查）。</p>
+          ${easy ? bar('第 1–2 級待篩（最可能已經會的）', 2004 - easy, 2004, `還有 ${easy} 字沒篩`, 'g-cyan') : ''}
+          <p class="tiny">全部待篩：${st.unseen} 字　・　已篩掉（本來就會）：${st.claimed} 字　・　一批約 20–40 秒</p>
+          <div class="btnrow"><button class="btn primary" data-go="sweep">開始快速篩選</button></div>
+        </div>`;
+      })()}
+
       ${due ? `<div class="card act-review">
         <h2>今天有 ${due} 個字到期要複習</h2>
         <p class="muted">這些是之前學過、時間到了該回顧的字。清掉它們才不會忘記。</p>
@@ -322,6 +336,7 @@
           <button class="btn" data-go="shop">🏪 商店（🪙 ${S.coins()}）</button>
           <button class="btn" data-go="bag">🎒 背包${(() => { const n = S.MAT_ORDER.reduce((a, id) => a + S.matCount(id), 0); return n ? `（素材 ${n}）` : ''; })()}</button>
           <button class="btn" data-go="records">📜 作答紀錄</button>
+          <button class="btn" data-go="sweep">⚡ 快速篩選已會的字</button>
           <button class="btn" data-go="practice">🎯 自訂範圍練習</button>
           <button class="btn" data-go="browse">📖 瀏覽字庫</button>
           <button class="btn" data-go="badges">🏅 徽章與文法進度</button>
@@ -1131,6 +1146,10 @@
       `■ 造句運用：${sum.applyTotal} 題 → 對 ${sum.applyRight} 個`,
       `■ 文法練習：${sum.gramTotal} 題 → 對 ${sum.gramRight} 個${gramNames.length ? `（${gramNames.join('、')}）` : ''}`,
       sum.free.length ? `■ 自己造句：寫了 ${sum.free.length} 句（待老師批改）` : null,
+      sum.sweepKnown || sum.sweepLearn
+        ? `■ 快速篩選：確認「本來就會」${sum.sweepKnown} 字（不列入新學）、挑出 ${sum.sweepLearn} 字要學`
+        + (sum.sweepTotal ? `；抽考 ${sum.sweepTotal} 題對 ${sum.sweepRight} 題` : '')
+        : null,
       ``,
       `■ 今天實際練習時間：${fmtSec(S.runSeconds(sum.date))}（共闖 ${S.runLog(sum.date).length} 關，通關 ${S.day(sum.date).cleared || 0} 關）`,
       `■ 今天完成的任務：${(S.questLog(sum.date) || []).length} 項`,
@@ -1276,7 +1295,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   /** 闖關前先把沒見過的字一張一張看過。看完呼叫 window.__cards.then()。 */
   function studyCards(ids, k) {
     if (k >= ids.length) {
-      S.markNew(ids);
+      // 按過「早就會了」的字不算今天的新字（那不是今天學的）
+      const skip = (window.__cards && window.__cards.skip) || [];
+      S.markNew(ids.filter(i => !skip.includes(i)));
       return (window.__cards && window.__cards.then) ? window.__cards.then() : home();
     }
     const w = V()[ids[k]];
@@ -1302,10 +1323,17 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <div class="btnrow" style="justify-content:center">
         ${k > 0 ? '<button class="btn ghost" data-act="prevCard">← 上一個</button>' : ''}
         <button class="btn primary" data-act="nextCard">${k + 1 >= ids.length ? '開始闖關 →' : '記住了，下一個 →'}</button>
+        <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭</button>
       </div>
-      <p class="tiny" style="text-align:center">看完這 ${ids.length} 個新字就開始闖關。</p>
+      <p class="tiny" style="text-align:center">看完這 ${ids.length} 個新字就開始闖關。
+        按「早就會了」會把它當已會（不算今天的新字），但 3 天後複習還是會抽考它。</p>
     `);
-    window.__cards = { ids, k, then: (window.__cards && window.__cards.then) || null, back: (window.__cards && window.__cards.back) || null };
+    window.__cards = {
+      ids, k,
+      then: (window.__cards && window.__cards.then) || null,
+      back: (window.__cards && window.__cards.back) || null,
+      skip: (window.__cards && window.__cards.skip) || [],
+    };
     if (S.settings.tts) setTimeout(() => say(Q.base(w.w)), 200);
   }
 
@@ -1493,6 +1521,159 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     ${group('theme', '🎨 外觀主題', '買了到背包或這裡按「使用」就會換整站配色。')}
     ${group('title', '🏷 稱號', '顯示在左上角品牌名旁邊。')}
     `);
+  }
+
+  // ---------------- 快速篩選（本來就會的字不用當新字學）----------------
+  /* 流程：一次 12 個字 → 自己點掉「不會的」→ 從沒點的字裡隨機抽 2 個真的考 →
+     抽考過就把整批當已會（box 2，3 天後還是會被複習抽到）；抽考沒過整批降級。 */
+  let sw = { lvs: [1, 2], batch: [], off: new Set(), phase: 'pick', check: [], ci: 0, wrong: [], stat: null };
+
+  function sweepStart() {
+    setBack([home]);
+    const st = S.sweepStat();
+    const lvBtns = [1, 2, 3, 4, 5, 6].map(l =>
+      `<button class="pill ${sw.lvs.includes(l) ? 'on' : ''}" data-swlv="${l}">${l} 級<br><span style="font-size:10px;opacity:.8">${st.byLevel[l] || 0} 字待篩</span></button>`).join('');
+    const pool = S.sweepPool(1, sw.lvs).length;
+    render(`<div class="card">
+      ${pageHead('⚡ 快速篩選', { back: true })}
+      <p class="muted">詞彙表裡有很多你小學就會的字。這裡一次看 12 個字，<b>只要點掉不會的</b>，
+        剩下的就直接算已會 —— 不用走學習卡、不算新字。</p>
+      <p class="tiny">為了不讓數字虛胖：每批會從你「說會」的字裡<b>隨機抽 2 個真的考</b>；抽考沒過，整批降級明天重考。
+        算已會的字也只放到 box 2，<b>3 天後照樣會出現在複習裡</b>。</p>
+      <h3 style="margin-top:14px">要篩哪幾級？</h3>
+      <div class="pills">${lvBtns}</div>
+      <p class="muted" style="margin-top:10px">還沒篩過的字：<b style="color:var(--ac)">${st.unseen}</b> 個
+        ・已篩掉（本來就會）<b style="color:var(--blue)">${st.claimed}</b> 個</p>
+      <div class="btnrow">
+        <button class="btn primary big-btn" data-act="sweepGo" ${pool ? '' : 'disabled'}>開始篩（一批 12 字）</button>
+      </div>
+      <p class="tiny">一批大約 20–40 秒。L1＋L2 共 2004 字，全部篩完約 1.5–2 小時，之後就再也不會被當新字考。</p>
+    </div>`);
+  }
+
+  function sweepBatch() {
+    sw.batch = S.sweepPool(12, sw.lvs);
+    sw.off = new Set();
+    sw.phase = 'pick';
+    if (!sw.batch.length) return sweepDone();
+    sweepDrawPick();
+  }
+
+  function sweepDrawPick() {
+    const st = S.sweepStat();
+    const cards = sw.batch.map((w, k) => `<button class="swcard ${sw.off.has(k) ? 'no' : ''}" data-swpick="${k}">
+      <span class="sww">${esc(w.w)}</span>
+      <span class="tiny">${esc(w.p)} ・ L${w.lv}</span>
+      <span class="swmark">${sw.off.has(k) ? '✗ 不會' : '✓ 會'}</span>
+    </button>`).join('');
+    render(`<div class="hud"><b>⚡ 快速篩選</b>
+      <div class="progressline"><i style="width:${Math.min(100, (st.claimed) / Math.max(1, st.claimed + st.unseen) * 100)}%"></i></div>
+      <span class="tiny">剩 ${st.unseen} 字待篩</span></div>
+      <div class="card">
+        <h3>點掉<b style="color:var(--red)">不會</b>的字（不確定意思的也點掉）</h3>
+        <div class="swgrid">${cards}</div>
+        <div class="btnrow" style="margin-top:14px;justify-content:center">
+          <button class="btn primary big-btn" data-act="sweepSubmit">這批處理完（${sw.batch.length - sw.off.size} 個會 / ${sw.off.size} 個不會）</button>
+          <button class="btn ghost" data-act="sweepAllNo">全部都不會</button>
+          <button class="btn ghost" data-act="sweepEnd">先停</button>
+        </div>
+        <p class="tiny" style="margin-top:8px">點掉的字會排進學習隊列（照樣出學習卡與完整題型）；沒點的字接著會被抽考。</p>
+      </div>`);
+  }
+
+  /** 從「說會」的字裡抽 2 個真的考（英→中 四選一，10 秒）。 */
+  function sweepCheck() {
+    const claim = sw.batch.filter((w, k) => !sw.off.has(k));
+    if (!claim.length) return sweepApply([]);
+    sw.check = Q.shuffle(claim).slice(0, Math.min(2, claim.length))
+      .map(w => Q.gen.e2c(w) || Q.gen.c2e(w)).filter(Boolean);
+    sw.check.forEach(q => { q.kind = 'sweep'; q.secs = 10; });
+    sw.ci = 0; sw.wrong = []; sw.phase = 'check';
+    if (!sw.check.length) return sweepApply([]);
+    sweepDrawCheck();
+  }
+
+  function sweepDrawCheck() {
+    const q = sw.check[sw.ci];
+    if (!q) return sweepApply(sw.wrong);
+    const p = q.prompt;
+    render(`<div class="hud"><b>抽考</b>
+      <div class="progressline"><i style="width:${sw.ci / sw.check.length * 100}%"></i></div>
+      <span class="tiny">${sw.ci + 1}/${sw.check.length}</span>
+      <span class="timer" id="timer"></span></div>
+      <div class="card qcard">
+        <div class="qtag">確認一下 ・ 第 ${p.lv} 級</div>
+        <div class="qword">${esc(p.word || p.zh)}</div>
+        <p class="muted" style="margin-top:10px">選出正確的中文意思</p>
+        <div class="opts">${q.opts.map((o, k) =>
+      `<button class="opt" data-swopt="${k}"><span class="k">${'ABCD'[k]}</span><span>${esc(o)}</span></button>`).join('')}</div>
+      </div>
+      <p class="tiny" style="text-align:center">抽考只考你剛剛說「會」的字。答錯不扣血，但這批會重新排進學習隊列。</p>`);
+    let left = 10;
+    clearInterval(window.__swTimer);
+    const tick = () => {
+      const el = $('#timer');
+      if (!el) return clearInterval(window.__swTimer);
+      el.textContent = left + 's';
+      el.className = 'timer' + (left <= 3 ? ' warn' : '');
+      if (left <= 0) { clearInterval(window.__swTimer); sweepAnswer(null); }
+      left--;
+    };
+    tick();
+    window.__swTimer = setInterval(tick, 1000);
+  }
+
+  function sweepAnswer(pick) {
+    clearInterval(window.__swTimer);
+    const q = sw.check[sw.ci];
+    if (!q) return;
+    const ok = pick != null && Q.grade(q, pick);
+    S.answer(q.i, ok, 1);
+    S.logAnswer({ i: q.i, t: 'sweep', ok, attempt: 1, ms: 0, given: answerText(q, pick), right: q.opts[q.a] });
+    if (!ok) sw.wrong.push(q.i);
+    ok ? sfx.ok() : sfx.no();
+    sw.ci++;
+    if (sw.ci >= sw.check.length) return sweepApply(sw.wrong);
+    sweepDrawCheck();
+  }
+
+  function sweepApply(failed) {
+    const know = sw.batch.filter((w, k) => !sw.off.has(k)).map(w => w.i);
+    const learn = sw.batch.filter((w, k) => sw.off.has(k)).map(w => w.i);
+    const r = S.applySweep({ know, learn, failed: failed || [] });
+    const st = S.sweepStat();
+    // 篩選也算學習：給少量 XP，避免「有做事卻沒回饋」
+    const xp = Math.round(know.length * 2 + learn.length);
+    S.addXp(xp);
+    const gifts = S.claimLevelUps();
+    render(`<div class="card sheet" style="text-align:center">
+      <h2>${r.downgraded ? '⚠ 抽考沒過' : '✅ 這批處理完了'}</h2>
+      <div class="grid2" style="margin-top:12px">
+        <div class="stat ok"><b>${r.known}</b><span>確認已會（跳過）</span></div>
+        <div class="stat no"><b>${r.learn}</b><span>排進學習隊列</span></div>
+        <div class="stat blue"><b>${st.unseen}</b><span>還沒篩的字</span></div>
+        <div class="stat gold"><b>+${xp}</b><span>XP</span></div>
+      </div>
+      ${r.downgraded ? `<p class="tiny" style="color:var(--gold)">抽考答錯了，所以這批「說會」的字只放到 box 1，明天會再考一次確認。</p>`
+      : '<p class="tiny">確認已會的字放在 box 2：3 天後仍會出現在複習裡抽考，真的忘了就會被抓出來。</p>'}
+      <div class="btnrow" style="justify-content:center;margin-top:14px">
+        <button class="btn primary big-btn" data-act="sweepNext" ${st.unseen ? '' : 'disabled'}>再篩下一批 →</button>
+        <button class="btn ghost" data-act="sweepEnd">先停在這裡</button>
+      </div>
+    </div>`);
+    showLevelUps(gifts);
+  }
+
+  function sweepDone() {
+    const st = S.sweepStat();
+    render(`<div class="card sheet" style="text-align:center">
+      <h2>🎉 這幾級都篩完了</h2>
+      <p class="muted">選的級別裡已經沒有沒見過的字。確認已會 ${st.claimed} 字，剩下的都在學習與複習排程裡。</p>
+      <div class="btnrow" style="justify-content:center;margin-top:12px">
+        <button class="btn primary" data-act="sweepPick">換別的級別繼續篩</button>
+        <button class="btn ghost" data-go="home">回首頁</button>
+      </div>
+    </div>`);
   }
 
   // ---------------- 背包 ----------------
@@ -1990,6 +2171,21 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       toast(`目標：${scope === 'all' ? '全書' : '第 ' + scope + ' 級'} ${total} 字，${g.until} 前 → 每天 ${st.perDay} 字`);
       return home();
     }
+    const swl = t.closest('[data-swlv]');
+    if (swl) {
+      const l = +swl.dataset.swlv;
+      sw.lvs.includes(l) ? sw.lvs = sw.lvs.filter(x => x !== l) : sw.lvs.push(l);
+      if (!sw.lvs.length) sw.lvs = [l];
+      return sweepStart();
+    }
+    const swp = t.closest('[data-swpick]');
+    if (swp) {
+      const k = +swp.dataset.swpick;
+      sw.off.has(k) ? sw.off.delete(k) : sw.off.add(k);
+      return sweepDrawPick();
+    }
+    const swo = t.closest('[data-swopt]');
+    if (swo && !swo.disabled) return sweepAnswer(+swo.dataset.swopt);
     const gsc = t.closest('[data-goalscope]');
     if (gsc) {
       const v = gsc.dataset.goalscope;
@@ -2095,6 +2291,11 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       const c = window.__lastMap;
       return c ? letterSetup(c.lv, c.letter) : home();
     }
+    if (a === 'sweepGo' || a === 'sweepNext') return sweepBatch();
+    if (a === 'sweepPick') return sweepStart();
+    if (a === 'sweepSubmit') return sweepCheck();
+    if (a === 'sweepAllNo') { sw.batch.forEach((w, k) => sw.off.add(k)); return sweepCheck(); }
+    if (a === 'sweepEnd') { clearInterval(window.__swTimer); return home(); }
     if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
     if (a === 'useKey') {
@@ -2121,6 +2322,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'next') return next();
     if (a === 'submit') return submit();
     if (a === 'clearSlot') { $('#slot').innerHTML = ''; document.querySelectorAll('.tile').forEach(x => x.classList.remove('used')); return; }
+    if (a === 'knowCard') {
+      const c = window.__cards;
+      const id = c.ids[c.k];
+      S.markKnown(id, 2);
+      c.skip = (c.skip || []).concat(id);
+      toast('標記為「早就會了」，3 天後複習會抽考它');
+      return studyCards(c.ids, c.k + 1);
+    }
     if (a === 'nextCard') { const c = window.__cards; return studyCards(c.ids, c.k + 1); }
     if (a === 'prevCard') { const c = window.__cards; return studyCards(c.ids, c.k - 1); }
     if (a === 'copyReport') return copyReport();
@@ -2175,6 +2384,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (where === 'map') return home();
     if (where === 'shop') return shop();
     if (where === 'bag') return bag();
+    if (where === 'sweep') return sweepStart();
     if (where === 'practice') return practice();
     if (where === 'browse') return browse();
     if (where === 'badges') return badges();

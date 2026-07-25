@@ -466,6 +466,22 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .btn.big-btn { font-size: 16px; padding: 13px 20px; }
 .tiny.gold, .gold { color: var(--gold); }
 
+/* ================= 快速篩選 ================= */
+.card.sweepcard { border-color: var(--cyan); background: linear-gradient(160deg, #103434 0%, var(--card) 55%); }
+.swgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; margin-top: 10px; }
+.swcard {
+  display: grid; gap: 2px; justify-items: start; text-align: left; cursor: pointer;
+  background: var(--bg2); color: var(--tx);
+  border: 2px solid var(--ac2); border-radius: 13px; padding: 11px 13px; font: inherit;
+  transition: transform .08s, border-color .12s, background .12s;
+}
+.swcard .sww { font-size: 19px; font-weight: 800; word-break: break-word; }
+.swcard .swmark { font-size: 11.5px; font-weight: 800; color: var(--ac); margin-top: 3px; }
+.swcard:active { transform: scale(.97); }
+.swcard.no { border-color: var(--red); background: rgba(255, 93, 108, .12); }
+.swcard.no .sww { text-decoration: line-through; opacity: .75; }
+.swcard.no .swmark { color: var(--red); }
+
 /* ================= 衝刺目標卡 ================= */
 .goalcard { border-width: 2px; }
 .goalcard.todo { border-color: var(--red); background: linear-gradient(160deg, #3a1c24 0%, var(--card) 55%); }

@@ -751,6 +751,89 @@ t('買特價商品時扣的是特價', () => {
   assert(d.cost < S.shopItem(d.id).cost, '特價價格不對');
 });
 
+console.log('\n--- 快速篩選（本來就會的字）---');
+t('篩選佇列只給沒見過的字，低級與常見字優先', () => {
+  const pool = S.sweepPool(12, [1, 2]);
+  assert(pool.length === 12, '一批應該 12 個：' + pool.length);
+  assert(pool.every(w => !S.isSeen(w.i)), '不該給已經見過的字');
+  assert(pool.every(w => w.lv === 1 || w.lv === 2), '級別篩選失效');
+  for (let k = 1; k < pool.length; k++) {
+    if (pool[k].lv === pool[k - 1].lv) assert((pool[k].fq || 99999) >= (pool[k - 1].fq || 99999), '同級沒有常見字優先');
+  }
+});
+
+t('自評已會 → box 2（3 天後仍會被複習抽到），不算今天的新字', () => {
+  const w = S.sweepPool(1, [1])[0];
+  const d = S.day();
+  d.newIds = []; d.sweepKnown = []; d.sweepLearn = [];
+  S.markKnown(w.i, 2);
+  const r = S.load().words[w.i];
+  assert(r.b === 2, 'box 應該是 2：' + r.b);
+  assert(r.due === S.addDays(S.todayStr(), 3), `到期日應該是 3 天後，實際 ${r.due}`);
+  assert(r.k === 1, '沒標記來源是自評');
+  assert(S.isKnown(w.i) === true, '應該算已學會（進度才會動）');
+  assert(S.summary().newCount === 0, '自評已會不該算成今天學的新字');
+});
+
+t('標成「要學」的字下次仍然要出學習卡', () => {
+  const w = S.sweepPool(1, [2])[0];
+  assert(S.needsCard(w.i) === true, '沒見過的字本來就要出卡');
+  S.markToLearn(w.i);
+  assert(S.isSeen(w.i) === true, '應該已經有紀錄');
+  assert(S.needsCard(w.i) === true, '標成要學之後仍然要出學習卡');
+  assert(S.load().words[w.i].due === S.todayStr(), '要學的字應該當天到期');
+  S.markKnown(w.i, 2);
+  assert(S.needsCard(w.i) === false, '改成已會之後就不用再出卡');
+});
+
+t('抽考沒過 → 整批「說會」的字降到 box 1，明天重考', () => {
+  const batch = S.sweepPool(6, [3]);
+  const know = batch.slice(0, 4).map(w => w.i);
+  const learn = batch.slice(4).map(w => w.i);
+  const d = S.day();
+  d.sweepKnown = []; d.sweepLearn = [];
+  const r = S.applySweep({ know, learn, failed: [know[0]] });
+  assert(r.known === 3, '扣掉抽考錯的應該剩 3：' + r.known);
+  assert(r.learn === 3, '答錯的要併進待學：' + r.learn);
+  assert(r.downgraded === true, '沒標記為降級');
+  assert(S.load().words[know[0]].b === 0, '抽考答錯的字應該歸零');
+  assert(S.load().words[know[1]].b === 1, '同批其他字應該降到 box 1：' + S.load().words[know[1]].b);
+  assert(S.load().words[know[1]].due === S.addDays(S.todayStr(), 1), '降級的字應該明天到期');
+});
+
+t('抽考通過 → box 2，並寫進當日篩選紀錄', () => {
+  const batch = S.sweepPool(5, [3]);
+  const know = batch.slice(0, 3).map(w => w.i);
+  const learn = batch.slice(3).map(w => w.i);
+  const d = S.day();
+  d.sweepKnown = []; d.sweepLearn = [];
+  const r = S.applySweep({ know, learn, failed: [] });
+  assert(r.known === 3 && r.learn === 2, '數字不對：' + JSON.stringify(r));
+  assert(know.every(i => S.load().words[i].b === 2), '通過的字應該都是 box 2');
+  const sum = S.summary();
+  assert(sum.sweepKnown === 3 && sum.sweepLearn === 2, '成績單沒統計篩選結果：' + JSON.stringify(sum));
+  assert(sum.newCount === 0, '篩選不該算成今天學的新字');
+});
+
+t('篩選的抽考題不會混進「今天複習的單字」統計', () => {
+  const d = S.day();
+  d.log = [];
+  S.logAnswer({ i: 10, t: 'sweep', ok: true, attempt: 1, ms: 3000 });
+  S.logAnswer({ i: 11, t: 'sweep', ok: false, attempt: 1, ms: 4000 });
+  S.logAnswer({ i: 12, t: 'e2c', ok: true, attempt: 1, ms: 3000 });
+  const sum = S.summary();
+  assert(sum.sweepTotal === 2 && sum.sweepRight === 1, '抽考統計不對：' + JSON.stringify(sum));
+  assert(sum.reviewTotal === 1, '抽考被算進複習了：' + sum.reviewTotal);
+  assert(!sum.byType.sweep, '抽考不該出現在題型統計');
+});
+
+t('sweepStat 算得出還剩多少字沒篩、已篩掉多少', () => {
+  const st = S.sweepStat();
+  assert(st.unseen + Object.keys(S.load().words).length === V.length, '未篩＋已見過應該等於全部字數');
+  assert(st.claimed >= 1, '應該算得出自評已會的字數');
+  assert(Object.keys(st.byLevel).length >= 1, '沒有分級統計');
+});
+
 console.log('\n--- 衝刺目標 ---');
 t('目標會自己算「今天要學幾個字」＝剩下的字 ÷ 剩下的天數', () => {
   S.clearGoal();

@@ -831,6 +831,84 @@ t('商店賣的東西變多、變貴，且分稀有度', () => {
   assert(has('復活石') && has('主題：星空'), '新商品沒上架');
 });
 
+console.log('\n--- 快速篩選 ---');
+t('首頁有快速篩選入口，並顯示還有多少字沒篩', () => {
+  goHome();
+  assert(has('本來就會的字'), '首頁沒有篩選提示卡：' + txt().slice(0, 200));
+  assert(doc.querySelector('[data-go="sweep"]'), '沒有篩選入口');
+  click('[data-go="sweep"]');
+  assert(has('快速篩選') && has('只要點掉不會的'), '篩選頁不對：' + txt().slice(0, 250));
+  assert(doc.querySelectorAll('[data-swlv]').length === 6, '沒有六個級別可選');
+  assert(has('隨機抽 2 個真的考'), '沒有說明抽考機制');
+});
+
+t('一批 12 個字，可以點掉不會的', () => {
+  click('[data-act="sweepGo"]');
+  const cards = doc.querySelectorAll('[data-swpick]');
+  assert(cards.length === 12, '一批不是 12 個：' + cards.length);
+  assert(has('✓ 會'), '預設應該是「會」');
+  fire('click', cards[0]);
+  assert(doc.querySelectorAll('.swcard.no').length === 1, '點了卻沒標成不會');
+  assert(has('✗ 不會'), '沒顯示不會的標記');
+  fire('click', doc.querySelectorAll('[data-swpick]')[0]);
+  assert(doc.querySelectorAll('.swcard.no').length === 0, '再點一次應該取消');
+});
+
+t('送出後抽考 2 題，答對就把整批算已會（不算新字）', () => {
+  const d = S.day();
+  d.newIds = []; d.sweepKnown = []; d.sweepLearn = []; d.log = [];
+  // 點掉兩個當作「不會」
+  const cards = doc.querySelectorAll('[data-swpick]');
+  fire('click', cards[0]); fire('click', cards[1]);
+  click('[data-act="sweepSubmit"]');
+  assert(has('抽考'), '沒進抽考：' + txt().slice(0, 200));
+  let guard = 0;
+  while (doc.querySelector('[data-swopt]') && guard++ < 5) {
+    const r = window.__run;   // 抽考不走 runStage，直接讀畫面的正解
+    const opts = doc.querySelectorAll('[data-swopt]');
+    // 從畫面找不到正解，就全部按第一個；正確與否兩種結果都要能收尾
+    fire('click', opts[0]);
+  }
+  assert(has('確認已會') || has('抽考沒過'), '抽考後沒有結算畫面：' + txt().slice(0, 250));
+  const sum = S.summary();
+  assert(sum.sweepKnown + sum.sweepLearn === 12, `12 個字應該全部有歸屬：已會 ${sum.sweepKnown} + 待學 ${sum.sweepLearn}`);
+  assert(sum.sweepLearn >= 2, '點掉的兩個字應該進待學');
+  assert(sum.newCount === 0, '篩選不該算成今天學的新字');
+  assert(sum.sweepTotal >= 1, '抽考題數沒記錄');
+});
+
+t('結算後可以再篩下一批，或先停', () => {
+  assert(doc.querySelector('[data-act="sweepNext"]'), '沒有「再篩下一批」');
+  click('[data-act="sweepNext"]');
+  assert(doc.querySelectorAll('[data-swpick]').length === 12, '沒有進到下一批');
+  click('[data-act="sweepEnd"]');
+  assert(has('闖關地圖'), '沒回到首頁');
+});
+
+t('學習卡上可以按「這個我早就會了」，不算今天的新字', () => {
+  const d = S.day();
+  d.newIds = [];
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="5"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  if (!has('先認識新單字')) return;               // 這一關剛好沒有新字
+  assert(doc.querySelector('[data-act="knowCard"]'), '學習卡沒有「早就會了」鈕');
+  const c = window.__cards;
+  const id = c.ids[c.k];
+  const n = c.ids.length;
+  click('[data-act="knowCard"]');
+  assert(S.load().words[id].b === 2, '沒有標成已會');
+  assert(S.load().words[id].k === 1, '沒標記來源是自評');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 60) click('[data-act="nextCard"]');
+  assert(!S.day().newIds.includes(id), '按過「早就會了」的字不該算成今天的新字');
+  assert(S.day().newIds.length === n - 1, `新字數應該是 ${n - 1}，實際 ${S.day().newIds.length}`);
+  const r = window.__run && window.__run();
+  if (r) r.inStage = false;
+});
+
 console.log('\n--- 衝刺目標 ---');
 t('沒訂目標時首頁給快速設定鈕', () => {
   S.clearGoal();

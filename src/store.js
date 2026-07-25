@@ -157,6 +157,70 @@
     return r;
   }
 
+  // ---------- 快速篩選：本來就會的字不用當新字學 ----------
+  /* 詞彙表裡有大量小學就會的字（L1–L2 尤其多）。全部當「新字」從學習卡學一遍是浪費時間，
+     所以提供「自評 + 抽查」：自己勾掉不會的，剩下的算已會但**只放到 box 2**（3 天後就會被複習抽考），
+     而且同一批會隨機抽兩個真的考 —— 抽考沒過，整批降級重新排隊。這樣才不會靠嘴巴說會就跳過。 */
+  function markKnown(i, box) {
+    const r = rec(i), t = todayStr();
+    r.b = Math.max(r.b, box == null ? 2 : box);
+    r.due = addDays(t, BOX_DAYS[r.b] || 3);
+    r.k = 1;                       // 來源：自評已會（不是作答學會的）
+    delete r.nc;
+    r.last = t;
+    save();
+    return r;
+  }
+  /** 標成「要學」：留紀錄但下次遇到仍然要出學習卡（nc = need card）。 */
+  function markToLearn(i) {
+    const r = rec(i), t = todayStr();
+    r.b = 0; r.due = t; r.nc = 1;
+    save();
+    return r;
+  }
+  function needsCard(i) {
+    const r = load().words[i];
+    return !r || !!r.nc;
+  }
+  /** 篩選佇列：還沒見過的字，低級優先、常見字優先。 */
+  function sweepPool(n, lvs) {
+    const s = load(), out = [];
+    for (const w of window.VOCAB) {
+      if (s.words[w.i]) continue;
+      if (lvs && lvs.length && !lvs.includes(w.lv)) continue;
+      out.push(w);
+    }
+    out.sort((a, b) => (a.lv - b.lv) || ((a.fq || 99999) - (b.fq || 99999)));
+    return out.slice(0, n || 12);
+  }
+  /** 各級還有多少字沒篩過（首頁提示與篩選畫面用）。 */
+  function sweepStat() {
+    const s = load(), by = {};
+    let unseen = 0, known = 0, claimed = 0;
+    for (const w of window.VOCAB) {
+      const r = s.words[w.i];
+      if (!r) { unseen++; by[w.lv] = (by[w.lv] || 0) + 1; }
+      else { if (r.b >= 1) known++; if (r.k) claimed++; }
+    }
+    return { unseen, known, claimed, byLevel: by };
+  }
+  /** 收下一批篩選結果。抽考沒過 → 這批「說會」的字降到 box 1，明天就會被考。 */
+  function applySweep(o) {
+    const know = (o && o.know) || [], learn = (o && o.learn) || [];
+    const failed = (o && o.failed) || [], checkOk = !failed.length;
+    const d = day();
+    d.sweepKnown = d.sweepKnown || [];
+    d.sweepLearn = d.sweepLearn || [];
+    learn.forEach(i => { markToLearn(i); if (!d.sweepLearn.includes(i)) d.sweepLearn.push(i); });
+    know.forEach(i => {
+      if (failed.includes(i)) { markToLearn(i); if (!d.sweepLearn.includes(i)) d.sweepLearn.push(i); return; }
+      markKnown(i, checkOk ? 2 : 1);
+      if (!d.sweepKnown.includes(i)) d.sweepKnown.push(i);
+    });
+    save(true);
+    return { known: know.length - failed.length, learn: learn.length + failed.length, downgraded: !checkOk };
+  }
+
   /** 定位測驗結果：算出各級掌握率與學習模式。 */
   function applyPlacement(results) {
     const s = load(), byLv = {};
@@ -1264,6 +1328,7 @@
     const empty = {
       date: t, newCount: 0, newIds: [], reviewTotal: 0, reviewRight: 0, reviewWrong: 0,
       applyTotal: 0, applyRight: 0, gramTotal: 0, gramRight: 0,
+      sweepTotal: 0, sweepRight: 0, sweepKnown: 0, sweepLearn: 0,
       wrongWords: [], byType: {}, free: [], retries: 0, stars: 0, xp: 0, minutes: 0,
     };
     if (!d) return empty;
@@ -1272,10 +1337,13 @@
     const o = Object.assign({}, empty, {
       newIds: d.newIds || [], newCount: (d.newIds || []).length,
       free: d.free || [], xp: d.xp || 0,
+      sweepKnown: (d.sweepKnown || []).length, sweepLearn: (d.sweepLearn || []).length,
     });
     const wrongSet = new Map();
     first.forEach(x => {
       const isApply = APPLY.has(x.t);
+      // 快速篩選的抽考另外統計，不混進「今天複習的單字」
+      if (x.t === 'sweep') { o.sweepTotal++; if (x.ok) o.sweepRight++; return; }
       if (isApply) { o.applyTotal++; if (x.ok) o.applyRight++; }
       else { o.reviewTotal++; if (x.ok) o.reviewRight++; else o.reviewWrong++; }
       const bt = o.byType[x.t] = o.byType[x.t] || { n: 0, ok: 0 };
@@ -1302,6 +1370,7 @@
     load, save, todayStr, addDays, daysBetween,
     rec, isKnown, isSeen, answer,
     applyPlacement, startLevel, dueList, newList, verifySample,
+    markKnown, markToLearn, needsCard, sweepPool, sweepStat, applySweep,
     day, logAnswer, logGrammar, logFree, markNew, finishStage,
     startRun, endRun, findRun, runLog, runSeconds,
     answerLog, logTotals, progress,
