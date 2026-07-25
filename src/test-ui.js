@@ -841,6 +841,75 @@ t('商店賣的東西變多、變貴，且分稀有度', () => {
   assert(has('復活石') && has('主題：星空'), '新商品沒上架');
 });
 
+console.log('\n--- 錯題加強 ---');
+t('答錯的字會在同一關內被插入補考題', () => {
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="4"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 60) click('[data-act="nextCard"]');
+  const r = window.__run();
+  const before = r.qs.length;
+  const q = curQ();
+  assert(q, '沒有題目');
+  // 故意答錯
+  const opts = doc.querySelectorAll('.opt');
+  if (opts.length) fire('click', opts[q.a === 0 ? 1 : 0]);
+  else { doc.querySelector('#ans').value = '###wrong###'; click('[data-act="submit"]'); }
+  const r2 = window.__run();
+  assert(r2.qs.length === before + 1, `沒有插入補考題：${before} → ${r2.qs.length}`);
+  const redo = r2.qs.filter(x => x.redo);
+  assert(redo.length === 1 && redo[0].i === q.i, '補考的不是剛才答錯的字');
+  assert(r2.redo[q.i] === 1, '補考次數沒記');
+  r2.inStage = false;
+});
+
+t('補考記成第 2 次作答，不會洗掉首次正確率', () => {
+  const d = S.day();
+  d.log = [];
+  const w = V.find(x => x.lv === 3);
+  S.logAnswer({ i: w.i, t: 'e2c', ok: false, attempt: 1, ms: 3000 });
+  S.logAnswer({ i: w.i, t: 'spell', ok: true, attempt: 2, ms: 4000, redo: true });
+  const sum = S.summary();
+  assert(sum.reviewTotal === 1, '補考被算進題數了：' + sum.reviewTotal);
+  assert(sum.reviewWrong === 1 && sum.reviewRight === 0, '首次答錯卻被補考洗成對');
+  assert(S.answerLog({}).rows.some(x => x.redo), '作答紀錄沒標記補考');
+});
+
+t('首頁有錯題加強卡，可以直接打錯題關與難字關', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = V.filter(x => x.lv === 3).slice(0, 4).map(x => x.i);
+  ids.forEach(i => S.answer(i, false, 1));
+  ids.slice(0, 2).forEach(i => { S.answer(i, false, 1); S.answer(i, false, 1); });
+  goHome();
+  assert(has('錯題加強'), '沒有錯題加強卡：' + txt().slice(0, 200));
+  assert(has('難字'), '沒有難字提示');
+  assert(doc.querySelector('[data-act="startWrong"]'), '沒有錯題關按鈕');
+  click('[data-act="startWrong"]');
+  assert(has('錯題加強'), '沒進錯題關：' + txt().slice(0, 200));
+  const r = window.__run();
+  assert(r.qs.length >= 1, '錯題關沒題目');
+  assert(r.qs.every(q => S.load().words[q.i].wr > 0), '錯題關混進沒錯過的字');
+  assert(r.maxHearts === 0, '錯題關不該扣血');
+  r.inStage = false;
+  goHome();
+  click('[data-act="startLeech"]');
+  assert(has('難字特訓'), '沒進難字關：' + txt().slice(0, 200));
+  const r2 = window.__run();
+  assert(r2.qs.every(q => S.load().words[q.i].wr >= 3), '難字關混進非難字');
+  r2.inStage = false;
+});
+
+t('家長回報會列出反覆答錯的難字', () => {
+  goHome();
+  click('[data-go="report"]');
+  assert(has('難字'), '成績單沒有難字資訊：' + txt().slice(0, 300));
+  assert(has('出題機率已自動調高'), '沒有說明加強機制');
+});
+
 console.log('\n--- 快速篩選 ---');
 t('首頁有快速篩選入口，並顯示還有多少字沒篩', () => {
   goHome();

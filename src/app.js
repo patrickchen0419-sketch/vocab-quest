@@ -317,6 +317,23 @@
         <div class="stages" style="margin-top:10px">${lvRows}</div>
       </div>
 
+      ${(() => {
+        const wp = S.wrongPool(), lc = S.leeches();
+        if (!wp.length) return '';
+        const names = wp.slice(0, 8).map(x => V()[x.i].w);
+        return `<div class="card wrongcard">
+          <h2>🔁 錯題加強 <span class="tiny">${wp.length} 個字還沒練起來</span></h2>
+          <p class="muted">錯過的字出題機率已經自動調高（錯越多次、越常出現），同一關裡答錯還會<b>當場補考一次</b>。
+            想集中火力就直接打錯題關。</p>
+          ${lc.length ? `<p class="tiny" style="color:var(--red)">⚠ 難字（錯 3 次以上）${lc.length} 個：${esc(lc.slice(0, 6).map(x => V()[x.i].w).join('、'))}${lc.length > 6 ? '…' : ''}</p>` : ''}
+          <p class="tiny">最需要練的：${esc(names.join('、'))}${wp.length > 8 ? '…' : ''}</p>
+          <div class="btnrow">
+            <button class="btn primary" data-act="startWrong">錯題關（${Math.min(wp.length, 15)} 題）</button>
+            ${lc.length ? `<button class="btn gold" data-act="startLeech">只練難字（${Math.min(lc.length, 10)} 題）</button>` : ''}
+          </div>
+        </div>`;
+      })()}
+
       ${questBoard(t)}
 
       ${checkinCard(checkin, pg)}
@@ -427,6 +444,7 @@
     let body = '';
 
     const speakBtn = p.speak ? `<button class="speak" data-say="${esc(p.speak)}" title="播放發音">🔊</button>` : '';
+    const redoTag = q.redo ? '<div class="redotag">🔁 剛才錯過的字，再練一次</div>' : '';
     const lvTag = p.lv ? `<div class="qtag">${p.tag ? esc(p.tag) + ' ・ ' : ''}第 ${p.lv} 級 ${p.pos ? '・ ' + esc(p.pos) : ''}</div>` : '';
 
     if (p.type === 'word') {
@@ -497,7 +515,7 @@
         ${useTimer ? '<span class="timer" id="timer"></span>' : ''}
         ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty}</button>` : ''}
       </div>
-      <div class="card qcard" id="qcard">${body}${optsHtml}${submitHtml}</div>
+      <div class="card qcard ${q.redo ? 'redo' : ''}" id="qcard">${redoTag}${body}${optsHtml}${submitHtml}</div>
       <div id="fb"></div>
       ${run.attempt > 1 ? `<p class="tiny">第 ${run.attempt} 次挑戰這一關（前面的作答紀錄都有保留，正確率只採計第 1 次）</p>` : ''}
     `);
@@ -652,14 +670,17 @@
         title: (window.GRAMMAR_TITLES || {})[q.gid] || '',
       });
     } else {
-      S.answer(q.i, ok, run.attempt);
+      // 補考題（同一關內再考一次答錯的字）算第 2 次作答：正確率只採計第 1 次，才不會被補考洗白
+      const att = q.redo ? Math.max(2, run.attempt) : run.attempt;
+      S.answer(q.i, ok, att);
       // given / right 一起存下來：作答紀錄要看得出「當時寫了什麼」，事後無法重建
       S.logAnswer({
-        i: q.i, t: q.kind, ok, attempt: run.attempt, ms, timeout: !!timeout,
+        i: q.i, t: q.kind, ok, attempt: att, ms, timeout: !!timeout, redo: !!q.redo,
         given: answerText(q, given), right: answerText(q, q.opts ? q.a : null) || q.answer || '',
         runId: run.runId,
       });
     }
+    if (ok === false) queueRedo(q);
     run.answers.push({ q, given, ok });
 
     // ---- 分數 / 連擊 / 血量 ----
@@ -701,6 +722,29 @@
     markPicked(q, given);
     if (run.dead) return setTimeout(gameOver, 450);
     setTimeout(() => { run.locked = false; next(); }, 260);
+  }
+
+  /* 答錯的字不能只是「掉回 box 0、明天再說」——當下就要再遇到一次。
+     所以答錯後在這一關的後面插一題同一個字的補考（換一種題型），每個字最多補考 2 次。
+     補考記成第 2 次作答，不影響「首次正確率」，也不會被拿來洗成績。 */
+  const REDO_MAX = 2;                 // 同一個字在一關內最多補考幾次
+  const REDO_GAP = 3;                 // 至少隔幾題才再考（不要馬上重複同一題）
+  function queueRedo(q) {
+    if (!run || q.i == null || q.noGrade) return;
+    if (run.cfg.bonus) return;                       // 加碼題只有一題，不補考
+    run.redo = run.redo || {};
+    const n = run.redo[q.i] || 0;
+    if (n >= REDO_MAX) return;
+    if (run.qs.length > 60) return;                  // 別讓一關無限長
+    const w = V()[q.i];
+    const b = (S.load().words[q.i] || {}).b || 0;
+    const nq = Q.forWord(w, b, (run.cfg.map ? S.diff().tierShift : 0));
+    if (!nq) return;
+    nq.redo = true;
+    run.redo[q.i] = n + 1;
+    const at = Math.min(run.qs.length, run.idx + 1 + REDO_GAP);
+    run.qs.splice(at, 0, nq);
+    run.redoAdded = (run.redoAdded || 0) + 1;
   }
 
   /** 把答案（選項索引或輸入的字）轉成人看得懂的文字，給紀錄與檢討用。 */
@@ -1159,6 +1203,10 @@
       sum.retries ? `本日闖關重來 ${sum.retries} 次（正確率只採計第 1 次作答）` : null,
       ``,
       wrong.length ? `今天答錯、需要加強的字（${wrong.length}）：\n${wrong.join('、')}` : `今天全部答對，沒有需要加強的字 👍`,
+      (() => {
+        const lc = S.leeches(12);
+        return lc.length ? `\n反覆答錯 3 次以上的難字（${S.leeches().length}）：\n${lc.map(x => V()[x.i].w).join('、')}\n（這些字的出題機率已自動調高，答錯還會當場補考）` : null;
+      })(),
       ``,
       `— 出自大學入學考試中心《高中英文參考詞彙表》（111 學年度起適用）`,
     ].filter(x => x !== null).join('\n');
@@ -2358,6 +2406,17 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'openChest') return openChestFlow();
     if (a === 'bonusRound') return bonusRound();
     if (a === 'dlCsv') return dlCsv();
+    if (a === 'startWrong') {
+      const qs = Q.wrongSet(15, S.diff().tierShift);
+      if (!qs.length) { toast('目前沒有錯題，很好'); return home(); }
+      return runStage({ title: '🔁 錯題加強', questions: qs, hearts: 0, review: true });
+    }
+    if (a === 'startLeech') {
+      const ids = S.leeches(10).map(x => x.i);
+      const qs = Q.fixSet(ids, S.diff().tierShift);
+      if (!qs.length) { toast('目前沒有難字'); return home(); }
+      return runStage({ title: '⚠ 難字特訓', questions: qs, hearts: 0, review: true });
+    }
     if (a === 'startReview') return startReview();
     if (a === 'next') return next();
     if (a === 'submit') return submit();

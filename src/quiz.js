@@ -323,9 +323,20 @@
     return q_e2c(w) || q_c2e(w);
   }
 
+  /** 依「錯題權重」加權抽樣（Efraimidis–Spirakis）：錯過的字更容易被抽到，
+      但沒錯過的字仍然有機會 —— 不能讓錯題把整份考卷吃光。 */
+  function byErrWeight(ids) {
+    const W = (window.Store && window.Store.errWeight) ? window.Store.errWeight : () => 1;
+    return ids
+      .map(i => [i, Math.pow(Math.random(), 1 / Math.max(W(i), 1e-6))])
+      .sort((a, b) => b[1] - a[1])
+      .map(e => e[0]);
+  }
+
   function reviewSet(ids, shift) {
     const out = [];
-    ids.forEach(i => { const q = forWord(V()[i], null, shift); if (q) out.push(q); });
+    // 同一份複習卷裡，錯題排前面（先練最弱的，體力最好的時候）
+    byErrWeight(ids).forEach(i => { const q = forWord(V()[i], null, shift); if (q) out.push(q); });
     return out;
   }
 
@@ -389,32 +400,42 @@
     return shuffle(out);
   }
 
-  /** 闖關地圖的一關：從該 (級別, 字首) 的字裡挑 n 個，還沒學會的優先。 */
+  /** 闖關地圖的一關：從該 (級別, 字首) 的字裡挑 n 個。
+      還沒練熟的優先，其中「錯過的字」再加權 —— 錯題會比沒錯過的字更常被抽到。 */
   function stageSet(lv, letter, n, shift) {
     const ids = window.Store.bucket(lv, letter);
     if (!ids.length) return [];
     const st = window.Store.load();
     const weak = [], strong = [];
     ids.forEach(i => ((st.words[i] && st.words[i].b >= 3) ? strong : weak).push(i));
-    const pick_ = shuffle(weak).concat(shuffle(strong)).slice(0, n);
+    const pick_ = byErrWeight(weak).concat(byErrWeight(strong)).slice(0, n);
     return pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
   }
 
   /** 訂正關：只重練剛才答錯的字，不扣血、不計失敗。 */
   function fixSet(ids, shift) {
-    return shuffle(ids).map(i => forWord(V()[i], null, shift)).filter(Boolean);
+    return byErrWeight(ids).map(i => forWord(V()[i], null, shift)).filter(Boolean);
+  }
+
+  /** 錯題加強關：從錯題本抽 n 個字，錯得越兇的越前面。 */
+  function wrongSet(n, shift) {
+    const pool = window.Store.wrongPool(Math.max(n * 3, n));
+    if (!pool.length) return [];
+    return byErrWeight(pool.map(x => x.i)).slice(0, n)
+      .map(i => forWord(V()[i], null, shift)).filter(Boolean);
   }
 
   /** 自由範圍練習 */
   function customSet(n, filter, shift) {
     const pool = V().filter(filter);
-    return shuffle(pool).slice(0, n).map(w => forWord(w, null, shift)).filter(Boolean);
+    return byErrWeight(pool.map(w => w.i)).slice(0, n)
+      .map(i => forWord(V()[i], null, shift)).filter(Boolean);
   }
 
   window.Quiz = {
     base, expanded, acceptable, distractors, grade, checkFree,
     forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet,
-    stageSet, fixSet,
+    stageSet, fixSet, wrongSet, byErrWeight,
     q_free, q_grammar, plainSent, FORM_LABEL, shuffle,
     LIMITS, secsFor,
     gen: RECOG,                       // 單一題型生成器（測試與除錯用）

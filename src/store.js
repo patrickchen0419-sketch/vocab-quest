@@ -148,13 +148,48 @@
     if (ok) {
       r.b = Math.min(MAX_BOX, r.b + 1);
       r.due = addDays(t, BOX_DAYS[r.b] || 1);
+      r.lw = 0;                                  // 上一次是對的
+      if (r.streakOk == null) r.streakOk = 0;
+      r.streakOk++;
     } else {
       r.b = 0;                 // 答錯 → 掉回 box 0：當天重練，隔天必考
       r.due = t;
+      r.lw = 1;                                  // 上一次答錯 → 之後出題機率會被拉高
+      r.streakOk = 0;
+      r.lwd = t;                                 // 最後一次答錯的日期
     }
     r.last = t;
     save();
     return r;
+  }
+
+  /* 出題權重：錯過的字要更常出現。
+     1（基準）＋ 每次錯 ×0.8（上限 4）＋ 上一次答錯再 ×2 ＋ 三天內錯過再 +1。
+     連續答對會慢慢把權重壓回來（每連對一次扣 0.4），所以練起來之後不會一直卡在同一批字。 */
+  function errWeight(i) {
+    const r = load().words[i];
+    if (!r) return 1;
+    let w = 1 + Math.min(4, (r.wr || 0) * 0.8);
+    if (r.lw) w *= 2;
+    if (r.lwd && daysBetween(r.lwd, todayStr()) <= 3) w += 1;
+    w -= Math.min(2, (r.streakOk || 0) * 0.4);
+    return Math.max(0.5, w);
+  }
+  /** 錯題本：錯過而且還沒練熟的字（錯得越多、box 越低的排前面）。 */
+  function wrongPool(cap) {
+    const s = load(), out = [];
+    for (const k in s.words) {
+      const r = s.words[k];
+      if (!r.wr) continue;
+      if (r.b >= 4) continue;                    // 已經練起來的就不算錯題了
+      out.push({ i: +k, wr: r.wr, b: r.b, lw: !!r.lw, weight: errWeight(+k) });
+    }
+    out.sort((a, b) => (b.weight - a.weight) || (a.b - b.b) || (b.wr - a.wr));
+    return cap ? out.slice(0, cap) : out;
+  }
+  /** 難字（魔王字）：錯 3 次以上還沒練起來，家長回報與錯題關會特別點出來。 */
+  function leeches(cap) {
+    return wrongPool().filter(x => x.wr >= 3).slice(0, cap || 50);
   }
 
   // ---------- 快速篩選：本來就會的字不用當新字學 ----------
@@ -254,9 +289,10 @@
     const s = load(), t = todayStr(), out = [];
     for (const k in s.words) {
       const r = s.words[k];
-      if (r.due && r.due <= t) out.push({ i: +k, over: daysBetween(r.due, t), b: r.b });
+      if (r.due && r.due <= t) out.push({ i: +k, over: daysBetween(r.due, t), b: r.b, weight: errWeight(+k) });
     }
-    out.sort((a, b) => (b.over - a.over) || (a.b - b.b));   // 逾期最久、box 最低的先考
+    // 錯題優先：先看錯的權重，再看逾期天數與 box
+    out.sort((a, b) => (b.weight - a.weight) || (b.over - a.over) || (a.b - b.b));
     return cap ? out.slice(0, cap) : out;
   }
 
@@ -1462,7 +1498,7 @@
 
   window.Store = {
     load, save, todayStr, addDays, daysBetween,
-    rec, isKnown, isSeen, answer,
+    rec, isKnown, isSeen, answer, errWeight, wrongPool, leeches,
     applyPlacement, startLevel, dueList, newList, verifySample,
     markKnown, markToLearn, needsCard, sweepPool, sweepStat, applySweep,
     day, logAnswer, logGrammar, logFree, markNew, finishStage,

@@ -235,6 +235,73 @@ t('dueList 依逾期天數排序，且不含未到期的字', () => {
   for (let k = 1; k < list.length; k++) assert(list[k - 1].over >= list[k].over, '排序不對');
 });
 
+console.log('\n--- 錯題加強出題率 ---');
+t('錯過的字權重變高，連續答對會慢慢降回來', () => {
+  const a = V.find(w => w.lv === 2 && !S.isSeen(w.i)).i;
+  const b = V.filter(w => w.lv === 2 && !S.isSeen(w.i))[1].i;
+  assert(S.errWeight(a) === 1, '沒紀錄的字權重應該是 1：' + S.errWeight(a));
+  S.answer(a, true, 1);
+  const rightW = S.errWeight(a);
+  S.answer(b, false, 1);
+  const wrongW = S.errWeight(b);
+  assert(wrongW > rightW * 2, `答錯的權重要明顯高於答對：${wrongW} vs ${rightW}`);
+  S.answer(b, false, 1);
+  assert(S.errWeight(b) > wrongW, '錯第二次權重要再往上');
+  const peak = S.errWeight(b);
+  S.answer(b, true, 1); S.answer(b, true, 1); S.answer(b, true, 1);
+  assert(S.errWeight(b) < peak, '連續答對之後權重要降下來');
+});
+
+t('抽題會依權重偏向錯題，但沒錯過的字仍有機會', () => {
+  const ids = V.filter(w => w.lv === 5).slice(0, 20).map(w => w.i);
+  ids.forEach(i => { const r = S.rec(i); r.b = 1; r.wr = 0; r.lw = 0; r.streakOk = 5; delete r.lwd; });
+  const hot = ids.slice(0, 3);
+  hot.forEach(i => { const r = S.rec(i); r.wr = 4; r.lw = 1; r.streakOk = 0; });
+  let hotFirst = 0, coldSeen = 0;
+  for (let k = 0; k < 300; k++) {
+    const order = Q.byErrWeight(ids);
+    if (hot.includes(order[0])) hotFirst++;
+    if (!hot.includes(order[0])) coldSeen++;
+  }
+  assert(hotFirst > 150, `錯題排第一的次數太少：${hotFirst}/300`);
+  assert(coldSeen > 20, `沒錯過的字完全被吃掉了：${coldSeen}/300`);
+});
+
+t('到期清單把錯題排前面', () => {
+  const s = S.load();
+  const ids = V.filter(w => w.lv === 6).slice(0, 6).map(w => w.i);
+  ids.forEach(i => { const r = S.rec(i); r.b = 1; r.due = S.todayStr(); r.wr = 0; r.lw = 0; r.streakOk = 3; });
+  const bad = ids[4];
+  const r = S.rec(bad); r.wr = 5; r.lw = 1; r.streakOk = 0;
+  const due = S.dueList().map(x => x.i);
+  assert(due.indexOf(bad) < 3, '錯得最兇的字應該排在前面：' + due.indexOf(bad));
+});
+
+t('錯題本只收「錯過而且還沒練起來」的字，難字要錯 3 次以上', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = V.filter(w => w.lv === 4).slice(0, 5).map(w => w.i);
+  const [w1, w2, w3] = ids;
+  S.answer(w1, false, 1);                        // 錯 1 次
+  S.answer(w2, false, 1); S.answer(w2, false, 1); S.answer(w2, false, 1);   // 錯 3 次 → 難字
+  const r3 = S.rec(w3); r3.wr = 2; r3.b = 5;     // 錯過但已經練到 box 5
+  const pool = S.wrongPool().map(x => x.i);
+  assert(pool.includes(w1) && pool.includes(w2), '錯題本漏字');
+  assert(!pool.includes(w3), 'box 5 的字不該還在錯題本');
+  const lc = S.leeches().map(x => x.i);
+  assert(lc.includes(w2) && !lc.includes(w1), '難字判定不對：' + JSON.stringify(lc));
+  assert(S.wrongPool()[0].i === w2, '錯最多次的要排第一');
+});
+
+t('錯題關與難字關都抽得出題目', () => {
+  const qs = Q.wrongSet(5, 0);
+  assert(qs.length >= 1, '錯題關抽不出題');
+  qs.forEach(q => assert(S.load().words[q.i].wr > 0, '錯題關混進沒錯過的字'));
+  const ids = S.leeches(3).map(x => x.i);
+  const lq = Q.fixSet(ids, 0);
+  assert(lq.length === ids.length, '難字關題數不對');
+});
+
 console.log('\n--- 每日紀錄與成績單 ---');
 t('summary 只採計第 1 次作答，並分開統計複習／運用／文法', () => {
   const d = S.day();
