@@ -154,6 +154,47 @@
     </div>`;
   }
 
+  /** 衝刺目標卡：倒數幾天、今天該學幾個字、落後多少。沒訂目標時給快速設定鈕。 */
+  function goalCard() {
+    const g = S.goalStat();
+    if (!g.on) {
+      return `<div class="card goalcard off">
+        <h2>🎯 還沒訂衝刺目標</h2>
+        <p class="muted">訂一個「哪天之前學會幾個字」，網站每天會自己算出今天要學幾個 —— 落後了數字會變大，不用手動改計畫。</p>
+        <div class="btnrow">
+          <button class="btn primary" data-goalpreset="lv3">第 3 級 1002 字（建議）</button>
+          <button class="btn" data-goalpreset="lv4">第 4 級 1002 字</button>
+          <button class="btn" data-goalpreset="all">全書 6012 字</button>
+          <button class="btn ghost" data-go="settings">自己設</button>
+        </div>
+        <p class="tiny">期限預設 8/10，可以在設定頁改。</p>
+      </div>`;
+    }
+    const scopeName = g.scope === 'all' ? '全書' : `第 ${g.scope} 級`;
+    const ok = g.todayNew >= (g.perDay || 0);
+    return `<div class="card goalcard ${g.done ? 'done' : ok ? 'ontrack' : 'todo'}">
+      <h2>🎯 衝刺目標 <span class="tiny">${scopeName} ${g.target} 字 ・ ${g.until} 前</span></h2>
+      ${g.done ? `<p class="muted" style="color:var(--ac)">🏆 目標達成！${scopeName} ${g.target} 字已經全部學會。</p>` : `
+      <div class="goalrow">
+        <div class="gbig ${ok ? 'ok' : ''}">
+          <b>${ok ? '✓' : g.todayLeft}</b>
+          <span>${ok ? '今天的量做完了' : '今天還要學幾個字'}</span>
+        </div>
+        <div class="gside">
+          <div class="tiny">今天目標 <b style="color:var(--gold)">${g.perDay}</b> 字　已學 <b style="color:var(--ac)">${g.todayNew}</b> 字</div>
+          <div class="tiny">剩 <b style="color:var(--blue)">${g.daysLeft}</b> 天　還差 <b>${g.remain}</b> 字</div>
+          <div class="tiny">≈ 每天 ${g.perDay} 字 = ${Math.ceil(g.perDay / 10)} 關，約 ${Math.round(g.perDay * 1.05)}–${Math.round(g.perDay * 1.6)} 分鐘</div>
+        </div>
+      </div>
+      ${bar('今天的配額', Math.min(g.todayNew, g.perDay), g.perDay, `${g.todayNew}/${g.perDay} 字`, ok ? 'g-green' : 'g-red')}`}
+      ${bar(`${scopeName}總進度`, g.known, g.target, `${g.known}/${g.target} 字　${Math.round(g.pct * 100)}%`, 'g-gold')}
+      ${g.impossible ? `<p class="tiny" style="color:var(--red)">⚠ 目前的計畫要每天 ${g.perDay} 字（含複習大約 ${Math.round(g.perDay * 2.2)} 題、${Math.round(g.perDay / 60 * 1.3 * 60)} 分鐘以上）。
+        這個量學不進去 —— 建議把期限往後延，或把範圍縮小成一個級別。</p>`
+      : g.behind ? `<p class="tiny" style="color:var(--gold)">進度落後了：原訂每天 ${g.planned} 字，現在要每天 ${g.perDay} 字才追得上。</p>` : ''}
+      <div class="btnrow"><button class="btn sm ghost" data-go="settings">改目標</button></div>
+    </div>`;
+  }
+
   /** 每日簽到軌道：7 天一輪，一天比一天多，第 7 天金寶箱。看得到後面有什麼才想連下去。 */
   function checkinCard(checkin, pg) {
     // 還沒簽到時，預覽的是「今天簽到會拿到什麼」＝連續天數 +1 的位置
@@ -245,6 +286,8 @@
         </div>
         <p class="tiny">🔥 連續學習 ${pg.streak} 天　⚡ ${S.winStreak()} 連勝（最佳 ${S.bestWinStreak()}）　⏱ 今天已學 ${fmtSec(todaySec)}　✍ 今日 ${sum.reviewTotal + sum.applyTotal} 題</p>
       </div>
+
+      ${goalCard()}
 
       ${due ? `<div class="card act-review">
         <h2>今天有 ${due} 個字到期要複習</h2>
@@ -1809,9 +1852,24 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function settings() {
     setBack([home]);
     const c = S.settings;
+    const g = S.goalStat();
     render(`<div class="card">
       ${pageHead(`設定`, { back: true })}
-      <h3>每關題數</h3>
+      <h3>🎯 衝刺目標</h3>
+      <p class="tiny">訂「哪天之前學會幾個字」，首頁會自動算今天要學幾個。範圍選一個級別最實際。</p>
+      <div class="pills">
+        ${['all', 1, 2, 3, 4, 5, 6].map(v =>
+      `<button class="pill ${String(g.scope) === String(v) ? 'on' : ''}" data-goalscope="${v}">${v === 'all' ? '全書' : '第 ' + v + ' 級'}</button>`).join('')}
+      </div>
+      <label class="slider">目標字數：<b>${g.target || 0}</b> 字（範圍內共 ${g.total} 字）
+        <input type="range" min="0" max="${g.total}" step="${g.total > 1200 ? 100 : 50}" value="${g.target || 0}" data-goaltarget></label>
+      <label class="row">期限：<input type="date" class="txt" style="font-size:15px;letter-spacing:0;width:auto;margin:0;text-align:left" value="${g.until || '2026-08-10'}" data-goaluntil></label>
+      <p class="tiny">${g.on
+      ? `目前：${g.scope === 'all' ? '全書' : '第 ' + g.scope + ' 級'} ${g.target} 字 ・ ${g.until} 前 → 剩 ${g.daysLeft} 天，每天要 <b style="color:var(--gold)">${g.perDay}</b> 字`
+      : '還沒啟用（字數與期限都填好就會自動啟用）'}</p>
+      <div class="btnrow"><button class="btn sm ghost" data-act="clearGoal" style="color:var(--red)">取消目標</button></div>
+
+      <h3 style="margin-top:18px">每關題數</h3>
       <label class="slider">一個字母關幾題：<b>${c.stageQuestions}</b> 題<input type="range" min="5" max="30" step="1" value="${c.stageQuestions}" data-set="stageQuestions"></label>
       <p class="tiny">新單字會在闖關前自動出現學習卡，不用另外設定數量。</p>
       <h3 style="margin-top:16px">關卡難度</h3>
@@ -1921,6 +1979,26 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (ro) { rq.only = ro.dataset.ronly; rq.page = 0; return records(); }
     const rp = t.closest('[data-rpage]');
     if (rp) { rq.page = Math.max(0, rq.page + +rp.dataset.rpage); return records(); }
+    const gp = t.closest('[data-goalpreset]');
+    if (gp) {
+      const v = gp.dataset.goalpreset;
+      const scope = v === 'all' ? 'all' : +v.replace('lv', '');
+      const total = scope === 'all' ? V().length : 1002;
+      const g = S.setGoal({ scope, target: total, until: '2026-08-10', on: true });
+      const st = S.goalStat();
+      S.setGoal({ planned: st.perDay });               // 記下一開始的每日量，之後才看得出落後
+      toast(`目標：${scope === 'all' ? '全書' : '第 ' + scope + ' 級'} ${total} 字，${g.until} 前 → 每天 ${st.perDay} 字`);
+      return home();
+    }
+    const gsc = t.closest('[data-goalscope]');
+    if (gsc) {
+      const v = gsc.dataset.goalscope;
+      const scope = v === 'all' ? 'all' : +v;
+      S.setGoal({ scope, target: scope === 'all' ? V().length : 1002 });
+      const st = S.goalStat();
+      S.setGoal({ planned: st.perDay });
+      return settings();
+    }
     const pre = t.closest('[data-preset]');
     if (pre) {
       const P = { light: [5, 15, 3], normal: [8, 20, 4], heavy: [15, 45, 6] }[pre.dataset.preset];
@@ -1950,6 +2028,21 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     }
     const n = e.target.closest('[data-n]');
     if (n) { pr.n = +n.value; n.closest('label').querySelector('b').textContent = n.value; }
+    const gt = e.target.closest('[data-goaltarget]');
+    if (gt) {
+      S.setGoal({ target: +gt.value });
+      gt.closest('label').querySelector('b').textContent = gt.value;
+      clearTimeout(window.__goalT);
+      window.__goalT = setTimeout(() => { const st = S.goalStat(); S.setGoal({ planned: st.perDay }); settings(); }, 500);
+    }
+    const gu = e.target.closest('[data-goaluntil]');
+    if (gu && gu.value) {
+      S.setGoal({ until: gu.value });
+      const st = S.goalStat();
+      S.setGoal({ planned: st.perDay });
+      clearTimeout(window.__goalT);
+      window.__goalT = setTimeout(settings, 300);
+    }
   });
   document.addEventListener('change', e => {
     const chk = e.target.closest('[data-chk]');
@@ -2002,6 +2095,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       const c = window.__lastMap;
       return c ? letterSetup(c.lv, c.letter) : home();
     }
+    if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
     if (a === 'useKey') {
       const r = S.useKey();

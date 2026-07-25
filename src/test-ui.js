@@ -831,6 +831,47 @@ t('商店賣的東西變多、變貴，且分稀有度', () => {
   assert(has('復活石') && has('主題：星空'), '新商品沒上架');
 });
 
+console.log('\n--- 衝刺目標 ---');
+t('沒訂目標時首頁給快速設定鈕', () => {
+  S.clearGoal();
+  goHome();
+  assert(has('還沒訂衝刺目標'), '沒有目標提示卡：' + txt().slice(0, 200));
+  assert(doc.querySelector('[data-goalpreset="lv3"]'), '沒有第 3 級預設鈕');
+  assert(doc.querySelector('[data-goalpreset="all"]'), '沒有全書預設鈕');
+});
+
+t('按下預設鈕就訂好目標，首頁顯示今天要學幾個字', () => {
+  click('[data-goalpreset="lv3"]');
+  const g = S.goalStat();
+  assert(g.on && g.scope === 3 && g.target === 1002, '目標沒設定好：' + JSON.stringify(g));
+  assert(g.until === '2026-08-10', '期限不對：' + g.until);
+  assert(has('衝刺目標'), '首頁沒有目標卡');
+  assert(has('今天還要學幾個字') || has('今天的量做完了'), '沒顯示今天的配額：' + txt().slice(0, 300));
+  assert(has('剩') && has('天'), '沒顯示倒數天數');
+  assert(doc.querySelectorAll('.goalcard .xpbar').length >= 2, '目標卡沒有兩條進度條');
+});
+
+t('今日配額成為每日任務，會出現在任務看板', () => {
+  const q = S.questStatus().find(x => x.id === 'goalday');
+  assert(q, '任務看板沒有今日目標任務');
+  assert(has('達成今日目標'), '首頁任務看板沒列出目標任務');
+  assert(q.goal === S.goalStat().perDay, '任務目標值不等於今天的配額');
+});
+
+t('設定頁可以改範圍、字數與期限，也可以取消', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(has('衝刺目標'), '設定頁沒有目標區');
+  assert(doc.querySelector('[data-goaltarget]'), '沒有目標字數滑桿');
+  assert(doc.querySelector('[data-goaluntil]'), '沒有期限欄');
+  click('[data-goalscope="4"]');
+  assert(S.goalStat().scope === 4, '範圍沒改成第 4 級');
+  click('[data-act="clearGoal"]');
+  assert(S.goalStat().on === false, '沒有取消目標');
+  goHome();
+  assert(has('還沒訂衝刺目標'), '取消後首頁應該回到未設定狀態');
+});
+
 console.log('\n--- 背包 ---');
 t('背包列出素材、合成台、道具存量與收藏', () => {
   const p = S.profile;

@@ -905,6 +905,51 @@
     return d.checkin;
   }
 
+  // ---------- 衝刺目標（到某個日期前學會幾個字）----------
+  /* 只存「目標」與「期限」，每天要學幾個字是**算出來的**：
+     (目標 - 已學會) ÷ 剩下天數。落後了數字自己會變大，不用手動改計畫。 */
+  const GOAL_DEFAULT = { on: false, until: null, target: 0, scope: 'all' };
+  function goalCfg() {
+    const p = load().profile;
+    p.goal = Object.assign({}, GOAL_DEFAULT, p.goal || {});
+    return p.goal;
+  }
+  function setGoal(patch) {
+    const g = goalCfg();
+    Object.assign(g, patch || {});
+    if (g.until && g.target > 0) g.on = true;
+    save(true);
+    return g;
+  }
+  function clearGoal() { load().profile.goal = Object.assign({}, GOAL_DEFAULT); save(true); }
+
+  /** 目標的即時狀態：還剩幾天、今天該學幾個字、今天學了幾個、有沒有落後。 */
+  function goalStat(dstr) {
+    const g = goalCfg(), t = dstr || todayStr(), s = load();
+    let known = 0, total = 0;
+    for (const w of window.VOCAB) {
+      if (g.scope !== 'all' && w.lv !== +g.scope) continue;
+      total++;
+      if (s.words[w.i] && s.words[w.i].b >= 1) known++;
+    }
+    const target = Math.min(g.target || total, total);
+    // 含今天、到期限當天的前一天為止（「8/10 之前」＝做到 8/9）
+    const daysLeft = g.until ? Math.max(0, daysBetween(t, g.until)) : null;
+    const remain = Math.max(0, target - known);
+    const perDay = daysLeft ? Math.ceil(remain / daysLeft) : null;
+    const todayNew = summary(t).newCount;
+    const planned = g.planned || null;                 // 一開始訂的每日量，用來看有沒有落後
+    return {
+      on: !!g.on, until: g.until, scope: g.scope,
+      target, total, known, remain, daysLeft, perDay, planned,
+      todayNew, todayLeft: Math.max(0, (perDay || 0) - todayNew),
+      pct: target ? Math.min(1, known / target) : 0,
+      done: target > 0 && known >= target,
+      behind: !!(planned && perDay && perDay > planned * 1.15),
+      impossible: !!(perDay && perDay > 120),           // 每天 120 字以上＝計畫不現實
+    };
+  }
+
   // ---------- 難度適配 ----------
   /** 最近幾個學習日的首次作答正確率。 */
   function recentAccuracy(nDays) {
@@ -1102,7 +1147,14 @@
     const picked = ['combo', 'kind', 'explore'].map(cat =>
       Object.assign({ tag: QUEST_TAG[cat] }, pickN(QUEST_POOL[cat], 1, rnd)[0]));
     const sp = specialQuest(t);
-    return FIXED_QUESTS.concat(picked, sp ? [sp] : []);
+    // 有訂衝刺目標的話，「今天的配額」本身就是一個任務（獎勵比一般任務高）
+    const gs = goalStat(t);
+    const goalQuest = gs.on && gs.perDay ? [{
+      id: 'goalday', tag: '目標', xp: 100, coin: 40, goal: gs.perDay,
+      name: `達成今日目標：學會 ${gs.perDay} 個新單字`,
+      cur: s => s.newCount,
+    }] : [];
+    return FIXED_QUESTS.concat(goalQuest, picked, sp ? [sp] : []);
   }
   /** 本週任務（抽 4 個）／本月任務（抽 3 個）。 */
   function weekQuestList(dstr) {
@@ -1259,6 +1311,7 @@
     summary, history, reset,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
+    goalCfg, setGoal, clearGoal, goalStat,
     checkIn, checkinPreview, checkinSlot, CHECKIN_TRACK, CHECKIN_MILESTONE,
     recentAccuracy, recommendDifficulty, difficultyFits,
     RARITY, xpMult, comboMult, coinMult, checkinMult, chestBoost,

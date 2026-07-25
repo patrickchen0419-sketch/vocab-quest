@@ -751,6 +751,55 @@ t('買特價商品時扣的是特價', () => {
   assert(d.cost < S.shopItem(d.id).cost, '特價價格不對');
 });
 
+console.log('\n--- 衝刺目標 ---');
+t('目標會自己算「今天要學幾個字」＝剩下的字 ÷ 剩下的天數', () => {
+  S.clearGoal();
+  assert(S.goalStat().on === false, '一開始不該有目標');
+  S.setGoal({ scope: 3, target: 1002, until: '2026-08-10' });
+  const g = S.goalStat('2026-07-26');
+  assert(g.on === true, '設定後應該啟用');
+  assert(g.total === 1002, '第 3 級應該 1002 字：' + g.total);
+  assert(g.daysLeft === 15, `7/26 到 8/10 前應該剩 15 天，實際 ${g.daysLeft}`);
+  assert(g.perDay === Math.ceil(g.remain / 15), `每天字數算錯：${g.perDay} vs ${Math.ceil(g.remain / 15)}`);
+  const later = S.goalStat('2026-08-05');
+  assert(later.daysLeft === 5, '接近期限時剩下天數要變少：' + later.daysLeft);
+  assert(later.perDay > g.perDay, '剩越少天，每天要學的字要變多');
+});
+
+t('學會的字會算進目標進度，範圍外的字不算', () => {
+  S.clearGoal();
+  S.setGoal({ scope: 4, target: 100, until: '2026-08-10' });
+  const before = S.goalStat().known;
+  const lv4 = V.find(w => w.lv === 4 && !S.isSeen(w.i));
+  const lv5 = V.find(w => w.lv === 5 && !S.isSeen(w.i));
+  S.answer(lv5.i, true, 1);
+  assert(S.goalStat().known === before, '第 5 級的字不該算進第 4 級目標');
+  S.answer(lv4.i, true, 1);
+  assert(S.goalStat().known === before + 1, '第 4 級學會的字沒算進來');
+});
+
+t('目標達成與「這計畫不現實」都判得出來', () => {
+  S.clearGoal();
+  S.setGoal({ scope: 4, target: 1, until: '2026-08-10' });
+  assert(S.goalStat().done === true, '已經超過目標字數卻沒判為達成');
+  S.setGoal({ scope: 'all', target: 6012, until: '2026-07-28' });
+  const g = S.goalStat('2026-07-26');
+  assert(g.perDay > 120 && g.impossible === true, `每天 ${g.perDay} 字應該被標為不現實`);
+});
+
+t('有目標時，每日任務會多一個「今日配額」任務', () => {
+  S.clearGoal();
+  const before = S.questList('2026-07-26').length;
+  S.setGoal({ scope: 3, target: 1002, until: '2026-08-10' });
+  const list = S.questList('2026-07-26');
+  const q = list.find(x => x.id === 'goalday');
+  assert(list.length === before + 1, '任務數沒增加');
+  assert(q && q.goal === S.goalStat('2026-07-26').perDay, '任務目標值應該等於今天的配額');
+  assert(q.xp >= 100, '目標任務的獎勵要比一般任務高');
+  S.clearGoal();
+  assert(!S.questList('2026-07-26').some(x => x.id === 'goalday'), '取消目標後任務要消失');
+});
+
 console.log('\n--- 整體進度 ---');
 t('progress() 給出畫進度條需要的所有數字', () => {
   const pg = S.progress();

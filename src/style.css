@@ -466,6 +466,25 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .btn.big-btn { font-size: 16px; padding: 13px 20px; }
 .tiny.gold, .gold { color: var(--gold); }
 
+/* ================= 衝刺目標卡 ================= */
+.goalcard { border-width: 2px; }
+.goalcard.todo { border-color: var(--red); background: linear-gradient(160deg, #3a1c24 0%, var(--card) 55%); }
+.goalcard.ontrack { border-color: var(--ac); background: linear-gradient(160deg, #13372c 0%, var(--card) 55%); }
+.goalcard.done { border-color: var(--gold); background: linear-gradient(160deg, #3a3016 0%, var(--card) 55%); }
+.goalcard.off { border-color: var(--line); border-style: dashed; }
+.goalrow { display: flex; align-items: center; gap: 14px; margin: 12px 0 4px; flex-wrap: wrap; }
+.gbig {
+  display: grid; place-items: center; text-align: center; flex: none;
+  min-width: 108px; padding: 10px 14px; border-radius: 16px;
+  background: rgba(255, 93, 108, .14); border: 1px solid var(--red);
+}
+.gbig b { font-size: 40px; line-height: 1.05; color: var(--red); font-weight: 900; }
+.gbig span { font-size: 11.5px; color: var(--tx2); }
+.gbig.ok { background: rgba(52, 211, 166, .14); border-color: var(--ac); }
+.gbig.ok b { color: var(--ac); }
+.gside { flex: 1; min-width: 180px; display: grid; gap: 3px; }
+.gside .tiny { font-size: 13px; color: var(--tx2); }
+
 /* ================= 背包：素材與合成台 ================= */
 .mats { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 9px; }
 .mat {
