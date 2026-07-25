@@ -452,7 +452,7 @@ t('金幣不夠時買不下去，夠了就買得到', () => {
   goHome(); click('[data-go="shop"]');
   const btn = doc.querySelector('[data-buy="heart"]');
   assert(btn && btn.disabled, '沒錢時按鈕應停用');
-  S.addCoins(500);
+  S.addCoins(S.priceOf("heart") + 200);
   goHome(); click('[data-go="shop"]');
   click('[data-buy="heart"]');
   assert(S.inventory().heart === 1, '沒買到：' + JSON.stringify(S.inventory()));
@@ -460,7 +460,8 @@ t('金幣不夠時買不下去，夠了就買得到', () => {
 });
 
 t('買了主題可以裝備，再按一次取消', () => {
-  S.addCoins(500);
+  S.addCoins(S.priceOf('theme_forest') + 100);      // 北歐物價，得先有錢
+  goHome(); click('[data-go="shop"]');
   click('[data-buy="theme_forest"]');
   click('[data-equip="theme_forest"]');
   assert(S.equipped('theme') === 'theme_forest', '沒裝備');
@@ -606,9 +607,18 @@ t('設定頁的時間表列出每一種題型', () => {
     assert(has(n), `時間表缺少 ${n}`));
 });
 
-t('徽章與文法進度頁列出 32 個文法點', () => {
+t('成就頁分等級列出，未達成的顯示進度條', () => {
   goHome();
   click('[data-go="badges"]');
+  assert(has('成就'), '沒進成就頁：' + txt().slice(0, 200));
+  ['普通', '稀有', '史詩', '傳說', '究極'].forEach(n => assert(has(n), '缺少等級分類：' + n));
+  assert(doc.querySelectorAll('.ach').length === S.BADGES.length, '成就數不對：' + doc.querySelectorAll('.ach').length);
+  assert(doc.querySelectorAll('.ach .qbar').length >= 1, '未達成的成就沒有進度條');
+  assert(has('全書背完') && has('全書精熟'), '沒有究極成就');
+  assert(has('成就收集度'), '沒有整體收集度進度條');
+});
+
+t('徽章與文法進度頁列出 32 個文法點', () => {
   assert(has('文法 32 點進度') && has('現在完成式') && has('倒裝'), '文法進度不完整');
 });
 
@@ -1033,10 +1043,23 @@ t('商店有今日特價區，價格劃掉原價', () => {
 
 t('商店每一件商品都有稀有度邊框與圖示', () => {
   const items = doc.querySelectorAll('.item');
-  assert(items.length >= 24, '商品數不足：' + items.length);
-  ['r-common', 'r-rare', 'r-epic', 'r-legend'].forEach(c =>
+  assert(items.length >= 30, '商品數不足：' + items.length);
+  ['r-common', 'r-rare', 'r-epic', 'r-legend', 'r-ultra'].forEach(c =>
     assert(txt().includes(c), '缺少稀有度樣式：' + c));
-  assert(doc.querySelectorAll('.iicon').length >= 24, '商品沒有圖示');
+  assert(doc.querySelectorAll('.iicon').length >= 30, '商品沒有圖示');
+  assert(has('素材包'), '沒有素材包分區');
+  assert(has('稱號：六級勇者') && !has('稱號：拼字達人'), '稱號沒精簡到三個');
+});
+
+t('素材包買下去直接進背包', () => {
+  S.profile.coins = 100000;
+  S.profile.materials = {};
+  goHome(); click('[data-go="shop"]');
+  click('[data-buy="pack_dust"]');
+  assert(S.matCount('stardust') === 3, '星塵沒進背包：' + S.matCount('stardust'));
+  assert(!S.inventory().pack_dust, '素材包不該佔道具欄');
+  click('[data-go="bag"]');
+  assert(has('星塵') && has('×3'), '背包沒顯示素材：' + txt().slice(0, 300));
 });
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);

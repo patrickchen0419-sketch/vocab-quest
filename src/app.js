@@ -339,7 +339,7 @@
           <button class="btn" data-go="sweep">⚡ 快速篩選已會的字</button>
           <button class="btn" data-go="practice">🎯 自訂範圍練習</button>
           <button class="btn" data-go="browse">📖 瀏覽字庫</button>
-          <button class="btn" data-go="badges">🏅 徽章與文法進度</button>
+          <button class="btn" data-go="badges">🏅 成就（${S.profile.badges.length}/${S.BADGES.length}）與文法進度</button>
           <button class="btn" data-go="report">📋 成績單／家長回報</button>
           <button class="btn" data-go="settings">⚙ 設定</button>
         </div>
@@ -1406,7 +1406,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
     if (S.owned('bigheart') && S.consume('bigheart')) { hearts += 3; used.push('大護心符 ♥+3'); }
     else if (S.owned('heart') && S.consume('heart')) { hearts += 1; used.push('護心符 ♥+1'); }
-    if (S.owned('hourglass') && S.consume('hourglass')) { timeMul = 1.5; used.push('沙漏 時間+50%'); }
+    if (S.owned('hourglass2') && S.consume('hourglass2')) { timeMul = 2; used.push('大沙漏 時間×2'); }
+    else if (S.owned('hourglass') && S.consume('hourglass')) { timeMul = 1.5; used.push('沙漏 時間+50%'); }
     if (S.owned('xp3') && S.consume('xp3')) { xpCard = 3; used.push('三倍 XP 卡'); }
     else if (S.owned('xp2') && S.consume('xp2')) { xpCard = 2; used.push('雙倍 XP 卡'); }
     if (used.length) toast('已使用：' + used.join('、'));
@@ -1460,13 +1461,15 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       theme_ocean: { '--ac': '#4fd6ff', '--ac2': '#2b9fd0', '--bg': '#07131f', '--bg2': '#0c1e2e', '--card': '#102a3d', '--card2': '#16374e', '--line': '#20506e' },
       theme_sakura: { '--ac': '#ff9ec4', '--ac2': '#e86da3', '--bg': '#1d1218', '--bg2': '#2a1922', '--card': '#33202b', '--card2': '#432a37', '--line': '#5e3a4c' },
       theme_night: { '--ac': '#b79cff', '--ac2': '#8b6bf0', '--bg': '#0a0a1c', '--bg2': '#101029', '--card': '#171736', '--card2': '#212048', '--line': '#332f63' },
+      theme_aurora: { '--ac': '#5cf2c8', '--ac2': '#2ec9a5', '--bg': '#04161a', '--bg2': '#082227', '--card': '#0d3038', '--card2': '#124149', '--line': '#1d6b71' },
+      theme_gold: { '--ac': '#ffd76a', '--ac2': '#d9a01c', '--bg': '#171208', '--bg2': '#221a0c', '--card': '#2e2411', '--card2': '#3f3117', '--line': '#5f4a1f' },
     };
     ['--ac', '--ac2', '--bg', '--bg2', '--card', '--card2', '--line'].forEach(k => root.style.removeProperty(k));
     if (themes[t]) for (const k in themes[t]) root.style.setProperty(k, themes[t][k]);
   }
 
   // ---------------- 商店 ----------------
-  const KIND_ICON = { consumable: '🧪', auto: '🛡', pet: '🐾', theme: '🎨', title: '🏷' };
+  const KIND_ICON = { consumable: '🧪', auto: '🛡', pet: '🐾', theme: '🎨', title: '🏷', pack: '📦' };
   /** 每件商品長一樣的卡：稀有度邊框、圖示、價格（有特價就劃掉原價）。 */
   function shopItemCard(it, inv, coins) {
     const have = inv[it.id] || 0;
@@ -1516,7 +1519,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     </div>
 
     ${group('consumable', '🧪 消耗品', '開關前自動使用；刪去法在答題時按按鈕、復活石在 GAME OVER 時使用。')}
-    ${group('auto', '🛡 護符（被動）', '持有就自動生效，效果可以疊加。')}
+    ${group('pack', '📦 素材包', '買下去立刻變成背包裡的素材（可以重複買），拿去合成台換道具。')}
+    ${group('auto', '🛡 護符（被動）', '持有就自動生效，效果可以疊加。價格很痛，但一次買終身有效。')}
     ${group('pet', '🐾 夥伴', '同時只能帶一隻，效果永久生效。')}
     ${group('theme', '🎨 外觀主題', '買了到背包或這裡按「使用」就會換整站配色。')}
     ${group('title', '🏷 稱號', '顯示在左上角品牌名旁邊。')}
@@ -1998,7 +2002,26 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function badges() {
     setBack([home]);
     const p = S.profile, st = S.stats();
-    const bs = S.BADGES.map(b => `<span class="badge ${p.badges.includes(b.id) ? 'got' : 'locked'}">${p.badges.includes(b.id) ? '🏅' : '🔒'} ${esc(b.name)} <span class="tiny">${esc(b.desc)}</span></span>`).join('');
+    const tiers = ['common', 'rare', 'epic', 'legend', 'ultra'];
+    const got = S.BADGES.filter(b => p.badges.includes(b.id)).length;
+    const bs = tiers.map(tk => {
+      const list = S.BADGES.filter(b => (b.tier || 'common') === tk);
+      if (!list.length) return '';
+      const T = S.BADGE_TIER[tk];
+      return `<h3 style="margin-top:14px">${esc(T.name)} <span class="tiny">${list.filter(b => p.badges.includes(b.id)).length}/${list.length}</span></h3>
+        <div class="achs">${list.map(b => {
+        const has_ = p.badges.includes(b.id);
+        const pr = S.badgeProgress(b, st);
+        return `<div class="ach ${T.cls} ${has_ ? 'got' : ''}">
+            <div class="ahead"><span class="aicon">${has_ ? '🏅' : '🔒'}</span><span class="rtag">${esc(T.name)}</span></div>
+            <b>${esc(b.name)}</b>
+            <span class="tiny">${esc(b.desc)}</span>
+            ${has_ ? '<span class="tiny" style="color:var(--gold)">已達成</span>'
+            : `<div class="qbar"><i style="width:${(pr.pct * 100).toFixed(1)}%"></i></div>
+               <span class="tiny">${pr.cur}/${pr.goal}（${Math.round(pr.pct * 100)}%）</span>`}
+          </div>`;
+      }).join('')}</div>`;
+    }).join('');
     const road = window.GRAMMAR_ROADMAP.map(s => {
       const items = s.ids.map(id => {
         const authored = !!window.GRAMMAR[id];
@@ -2011,8 +2034,20 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       }).join('');
       return `<h3 style="margin-top:14px">${esc(s.name)}</h3><div class="tblwrap"><table class="rep">${items}</table></div>`;
     }).join('');
-    render(`<div class="card">${pageHead(`徽章`, { back: true })}<div class="badges">${bs}</div>
-      <p class="tiny">最高連擊 ×${st.bestCombo}　自由造句累計 ${st.freeCount} 句</p></div>
+    render(`<div class="card">
+      ${pageHead(`成就 <span class="tiny">${got}/${S.BADGES.length}</span>`, { back: true })}
+      ${bar('成就收集度', got, S.BADGES.length, `${got}/${S.BADGES.length}`, 'g-gold')}
+      <div class="grid2" style="margin-top:12px">
+        <div class="stat ok"><b>${st.known}/${st.total}</b><span>已學會</span></div>
+        <div class="stat blue"><b>${st.mastered}</b><span>長期記憶</span></div>
+        <div class="stat gold"><b>${st.clearedStages}/${st.playableStages}</b><span>通關字母關</span></div>
+        <div class="stat purple"><b>${st.threeStars}</b><span>三星關</span></div>
+        <div class="stat"><b>×${st.bestCombo}</b><span>最高連擊</span></div>
+        <div class="stat cyan"><b>${st.gems}</b><span>累積寶石</span></div>
+      </div>
+      ${bs}
+      <p class="tiny" style="margin-top:12px">「究極」兩個成就要把全書 6012 字全部學會、甚至全部推進長期記憶（box 5 以上）。
+        以每天 60 字計算，第一個大約要 100 天，第二個還要再加上完整的複習週期。</p></div>
       <div class="card"><h2>文法 32 點進度</h2>
       <p class="muted">目前已備好教學與題目的是第一階 8 點；其餘會隨你的進度陸續補上。</p>${road}</div>
       `);
@@ -2102,7 +2137,12 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       return nav(go.dataset.go);
     }
     const buy = t.closest('[data-buy]');
-    if (buy) { const r = S.buy(buy.dataset.buy); toast(r.ok ? `買了「${r.item.name}」` : r.msg); return shop(); }
+    if (buy) {
+      const r = S.buy(buy.dataset.buy);
+      toast(r.ok ? (r.pack ? `「${r.item.name}」裡的素材已放進背包` : `買了「${r.item.name}」`) : r.msg);
+      if (r.ok) sfx.ok();
+      return shop();
+    }
     const eq = t.closest('[data-equip]');
     if (eq) {
       const inBag = !!t.closest('.recipes, .mats') || document.body.innerHTML.includes('合成台');

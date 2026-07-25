@@ -449,6 +449,40 @@ nav.tabs .btn.on { background: var(--ac); color: #07231b; border-color: transpar
   background: radial-gradient(circle, rgba(245,185,66,.35), transparent 70%);
 }
 .item.equipped { outline: 2px solid var(--ac); outline-offset: -2px; }
+/* 究極稀有度：彩虹描邊＋緩慢流動的光 */
+.item.r-ultra, .ach.r-ultra {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg2), var(--bg2)) padding-box,
+    linear-gradient(120deg, #ff7bb0, #f5b942, #3ddbd9, #a983ff, #ff7bb0) border-box;
+  border-width: 2px; border-style: solid;
+  box-shadow: inset 0 0 30px rgba(255, 255, 255, .07);
+}
+.item.r-ultra .rtag, .ach.r-ultra .rtag {
+  background: linear-gradient(90deg, #ff7bb0, #f5b942, #3ddbd9); color: #10121c;
+}
+
+/* ================= 成就牆 ================= */
+.achs { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.ach {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  position: relative; overflow: hidden;
+}
+.ach .ahead { display: flex; align-items: center; justify-content: space-between; }
+.ach .aicon { font-size: 22px; filter: grayscale(1) opacity(.5); }
+.ach .rtag { font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 8px; }
+.ach.got .aicon { filter: none; }
+.ach.got { box-shadow: inset 0 0 26px rgba(245, 185, 66, .14); }
+.ach.got b { color: var(--gold); }
+.ach.r-common { border-color: #4a5c85; }
+.ach.r-common .rtag { background: #4a5c85; color: #eaf1ff; }
+.ach.r-rare { border-color: var(--blue); }
+.ach.r-rare .rtag { background: var(--blue); color: #04203f; }
+.ach.r-epic { border-color: var(--purple); }
+.ach.r-epic .rtag { background: var(--purple); color: #1a0733; }
+.ach.r-legend { border-color: var(--gold); }
+.ach.r-legend .rtag { background: linear-gradient(90deg, var(--gold), #ffe9a8); color: #2b1c00; }
 
 /* ================= 紀錄表格 ================= */
 table.log td { vertical-align: top; }

@@ -375,18 +375,19 @@ t('金幣：買得起才扣款，買不起要擋下來', () => {
   const p = S.profile;
   p.coins = 0; p.inventory = {};
   assert(S.buy('heart').ok === false, '沒錢卻買成功');
-  S.addCoins(100);
-  const cost = S.shopItem('heart').cost;
+  const cost = S.priceOf('heart');
+  const purse = cost + 40;
+  S.addCoins(purse);
   const r = S.buy('heart');
   assert(r.ok === true, '有錢卻買失敗：' + r.msg);
-  assert(S.coins() === 100 - cost, '扣款不對：' + S.coins());
+  assert(S.coins() === purse - cost, '扣款不對：' + S.coins());
   assert(S.inventory().heart === 1, '沒進背包');
   assert(S.consume('heart') === true && !S.inventory().heart, '消耗失敗');
 });
 
 t('外觀類道具買過就不能重複買，可裝備與取消', () => {
   const p = S.profile;
-  p.coins = 1000; p.inventory = {}; p.equipped = {};
+  p.coins = S.priceOf("theme_forest") + 50; p.inventory = {}; p.equipped = {};
   assert(S.buy('theme_forest').ok === true, '買不到主題');
   assert(S.buy('theme_forest').ok === false, '主題可以重複買');
   S.equip('theme_forest');
@@ -658,6 +659,118 @@ t('被動道具與夥伴會影響倍率', () => {
   assert(S.chestBoost().item > 0 && S.chestBoost().mult > 1, '幸運符沒生效');
   p.equipped = { pet: 'pet_fox' };
   assert(S.comboMult() === 1.5, '小狐狸應該讓連擊分 ×1.5');
+  p.inventory = {}; p.equipped = {};
+});
+
+console.log('\n--- 成就 ---');
+t('成就分五級，每個都有敘述與進度算法', () => {
+  const tiers = new Set(S.BADGES.map(b => b.tier || 'common'));
+  ['common', 'rare', 'epic', 'legend', 'ultra'].forEach(k => assert(tiers.has(k), '缺少等級：' + k));
+  assert(S.BADGES.length >= 28, '成就數太少：' + S.BADGES.length);
+  const ids = S.BADGES.map(b => b.id);
+  assert(new Set(ids).size === ids.length, '成就 id 重複');
+  const st = S.stats();
+  S.BADGES.forEach(b => {
+    assert(b.name && b.desc, b.id + ' 缺名稱或敘述');
+    assert(S.BADGE_TIER[b.tier || 'common'], b.id + ' 等級不合法');
+    const p = S.badgeProgress(b, st);
+    assert(p.goal >= 1 && p.cur >= 0 && p.pct >= 0 && p.pct <= 1, b.id + ' 進度算錯：' + JSON.stringify(p));
+  });
+});
+
+t('究極成就：全書 6012 字學會才算，少一個都不行', () => {
+  const all = S.BADGES.find(b => b.id === 'allwords');
+  const master = S.BADGES.find(b => b.id === 'allmaster');
+  assert(all && master, '缺少究極成就');
+  assert(all.tier === 'ultra' && master.tier === 'ultra', '究極成就等級不對');
+  const total = V.length;
+  assert(all.test({ known: total - 1, total }) === false, '少一個字就不該達成');
+  assert(all.test({ known: total, total }) === true, '全部學會卻沒達成');
+  assert(master.test({ mastered: total - 1, total }) === false, '少一個字就不該達成');
+  assert(master.test({ mastered: total, total }) === true, '全部精熟卻沒達成');
+  const p = S.badgeProgress(all, { known: 3006, total });
+  assert(p.goal === total && Math.abs(p.pct - 0.5) < 0.01, '進度條算錯：' + JSON.stringify(p));
+});
+
+t('傳說成就要走完全圖／全三星，門檻跟著實際關卡數', () => {
+  const allstage = S.BADGES.find(b => b.id === 'allstage');
+  const allthree = S.BADGES.find(b => b.id === 'allthree');
+  const st = S.stats();
+  assert(st.playableStages > 100, '可玩關卡數不合理：' + st.playableStages);
+  assert(allstage.test({ clearedStages: st.playableStages - 1, playableStages: st.playableStages }) === false, '少一關就不該達成');
+  assert(allstage.test({ clearedStages: st.playableStages, playableStages: st.playableStages }) === true, '全通關卻沒達成');
+  assert(allthree.test({ threeStars: st.playableStages, playableStages: st.playableStages }) === true, '全三星卻沒達成');
+});
+
+t('stats 提供成就要用的累積數字', () => {
+  const st = S.stats();
+  ['known', 'mastered', 'total', 'stars', 'clearedStages', 'threeStars', 'playableStages',
+    'chests', 'gems', 'hellClears', 'minutes', 'gramDone', 'freeCount'].forEach(k =>
+      assert(st[k] != null, '缺少欄位：' + k));
+  assert(st.total === V.length, '總字數不對');
+});
+
+t('新成就在條件達成時會解鎖（用假的統計驗證）', () => {
+  const p = S.profile;
+  p.badges = [];
+  const got = S.checkBadges({ known: 6012, total: 6012, mastered: 6012, streak: 100, level: 20 });
+  const names = got.map(b => b.id);
+  ['allwords', 'allmaster', 'streak100', 'w4000', 'lv20'].forEach(id =>
+    assert(names.includes(id), '沒解鎖：' + id));
+  assert(S.checkBadges({ known: 6012, total: 6012 }).every(b => b.id !== 'allwords'), '成就重複發放');
+  p.badges = [];
+});
+
+console.log('\n--- 商店經濟（北歐物價）---');
+t('商品變多、有素材包、稱號只留三個', () => {
+  assert(S.SHOP.length >= 30, '商品數太少：' + S.SHOP.length);
+  const titles = S.SHOP.filter(x => x.kind === 'title');
+  assert(titles.length === 3, '稱號應該只留 3 個，實際 ' + titles.length);
+  const packs = S.SHOP.filter(x => x.kind === 'pack');
+  assert(packs.length >= 4, '素材包太少：' + packs.length);
+  packs.forEach(p => assert(p.give && Object.keys(p.give).length, p.id + ' 沒有內容物'));
+  assert(S.SHOP.some(x => x.rarity === 'ultra'), '缺少究極稀有度商品');
+});
+
+t('價格很痛：最便宜也要 90，最貴超過 20000', () => {
+  const costs = S.SHOP.map(x => x.cost);
+  assert(Math.min(...costs) >= 90, '有商品太便宜：' + Math.min(...costs));
+  assert(Math.max(...costs) >= 20000, '最貴的商品不夠貴：' + Math.max(...costs));
+  // 一天認真學大約 300–600 金幣：傳說級要存好幾週才買得起
+  const legend = S.SHOP.filter(x => x.rarity === 'legend' || x.rarity === 'ultra');
+  assert(legend.every(x => x.cost >= 3000), '傳說／究極商品應該都要 3000 以上');
+});
+
+t('素材包買了直接變素材，不佔道具欄，可以重複買', () => {
+  const p = S.profile;
+  p.coins = 100000; p.inventory = {}; p.materials = {};
+  S.day().drops = [];
+  const r1 = S.buy('pack_gem');
+  assert(r1.ok && r1.pack === true, '素材包沒特別處理：' + JSON.stringify(r1));
+  assert(!S.inventory().pack_gem, '素材包不該進道具欄');
+  assert(S.matCount('gem_blue') === 2 && S.matCount('gem_red') === 1, '素材沒發：' + JSON.stringify(S.mats()));
+  const r2 = S.buy('pack_gem');
+  assert(r2.ok === true, '素材包不能重複買');
+  assert(S.matCount('gem_blue') === 4, '第二次沒發素材');
+  assert(S.dropLog().some(x => /商店/.test(x.from || '')), '素材包沒寫進掉落紀錄');
+});
+
+t('新的被動效果：經驗護符、素材磁鐵、獨角獸', () => {
+  const p = S.profile;
+  p.inventory = {}; p.equipped = {}; p.materials = {};
+  const base = S.matDrop({ passed: true, lv: 1, stars: 1, combo: 0 })[0].n;
+  p.inventory = { charm_gem: 1 };
+  assert(S.matDrop({ passed: true, lv: 1, stars: 1, combo: 0 })[0].n === base + 1, '素材磁鐵沒生效');
+  p.inventory = { charm_xp: 1 };
+  assert(Math.abs(S.xpMult() - 1.1) < 1e-9, '經驗護符沒生效：' + S.xpMult());
+  p.inventory = { charm_xp: 1, pet_owl: 1 };
+  p.equipped = { pet: 'pet_owl' };
+  assert(S.xpMult() > 1.15, '護符與夥伴應該疊加：' + S.xpMult());
+  p.inventory = { pet_unicorn: 1 };
+  p.equipped = { pet: 'pet_unicorn' };
+  let upgraded = 0;
+  for (let k = 0; k < 400; k++) { S.day().chests = []; if (S.openChest('wood').tier !== 'wood') upgraded++; }
+  assert(upgraded > 40, '獨角獸的升級機率沒生效：' + upgraded);
   p.inventory = {}; p.equipped = {};
 });
 

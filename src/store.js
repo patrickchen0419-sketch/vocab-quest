@@ -475,20 +475,61 @@
     return s.profile.streak;
   }
 
+  /* 成就分四級：普通／稀有／史詩／傳說。
+     prog 讓畫面能畫「還差多少」的進度條 —— 困難成就沒有進度看就只是裝飾。
+     最上面那幾個是刻意做到「幾乎不可能」的：全書 6012 字學會、全部進長期記憶、
+     150 個字母關全三星、文法 32 點全精熟、連續 100 天。 */
   const BADGES = [
-    { id: 'first', name: '啟程', desc: '完成第一次闖關', test: st => st.daysStudied >= 1 },
-    { id: 'streak3', name: '三日不斷', desc: '連續學習 3 天', test: st => st.streak >= 3 },
-    { id: 'streak7', name: '七日不斷', desc: '連續學習 7 天', test: st => st.streak >= 7 },
-    { id: 'streak30', name: '一月不輟', desc: '連續學習 30 天', test: st => st.streak >= 30 },
-    { id: 'w100', name: '百字斬', desc: '學會 100 個單字', test: st => st.known >= 100 },
-    { id: 'w500', name: '五百字斬', desc: '學會 500 個單字', test: st => st.known >= 500 },
-    { id: 'w1000', name: '千字斬', desc: '學會 1000 個單字', test: st => st.known >= 1000 },
-    { id: 'combo10', name: '十連擊', desc: '單關連續答對 10 題', test: st => st.bestCombo >= 10 },
-    { id: 'combo25', name: '廿五連擊', desc: '單關連續答對 25 題', test: st => st.bestCombo >= 25 },
-    { id: 'perfect', name: '無傷通關', desc: '一關沒扣血且全對', test: st => st.perfectStage },
-    { id: 'writer', name: '造句手', desc: '累積寫下 20 句自由造句', test: st => st.freeCount >= 20 },
-    { id: 'gram8', name: '文法補完・第一階', desc: '完成第一階 8 個文法點', test: st => st.gramDone >= 8 },
+    // --- 普通 ---
+    { id: 'first', name: '啟程', tier: 'common', desc: '完成第一次闖關', test: st => st.daysStudied >= 1, prog: st => [Math.min(st.daysStudied, 1), 1] },
+    { id: 'streak3', name: '三日不斷', tier: 'common', desc: '連續學習 3 天', test: st => st.streak >= 3, prog: st => [st.streak, 3] },
+    { id: 'w100', name: '百字斬', tier: 'common', desc: '學會 100 個單字', test: st => st.known >= 100, prog: st => [st.known, 100] },
+    { id: 'combo10', name: '十連擊', tier: 'common', desc: '單關連續答對 10 題', test: st => st.bestCombo >= 10, prog: st => [st.bestCombo, 10] },
+    { id: 'perfect', name: '無傷通關', tier: 'common', desc: '一關沒扣血且全對', test: st => st.perfectStage, prog: st => [st.perfectStage ? 1 : 0, 1] },
+    { id: 'chest10', name: '開箱人', tier: 'common', desc: '累積開 10 個寶箱', test: st => st.chests >= 10, prog: st => [st.chests, 10] },
+    // --- 稀有 ---
+    { id: 'streak7', name: '七日不斷', tier: 'rare', desc: '連續學習 7 天', test: st => st.streak >= 7, prog: st => [st.streak, 7] },
+    { id: 'w500', name: '五百字斬', tier: 'rare', desc: '學會 500 個單字', test: st => st.known >= 500, prog: st => [st.known, 500] },
+    { id: 'w1000', name: '千字斬', tier: 'rare', desc: '學會 1000 個單字', test: st => st.known >= 1000, prog: st => [st.known, 1000] },
+    { id: 'combo25', name: '廿五連擊', tier: 'rare', desc: '單關連續答對 25 題', test: st => st.bestCombo >= 25, prog: st => [st.bestCombo, 25] },
+    { id: 'writer', name: '造句手', tier: 'rare', desc: '累積寫下 20 句自由造句', test: st => st.freeCount >= 20, prog: st => [st.freeCount, 20] },
+    { id: 'gram8', name: '文法補完・第一階', tier: 'rare', desc: '完成第一階 8 個文法點', test: st => st.gramDone >= 8, prog: st => [st.gramDone, 8] },
+    { id: 'gem100', name: '礦工', tier: 'rare', desc: '累積收集 100 顆寶石', test: st => st.gems >= 100, prog: st => [st.gems, 100] },
+    { id: 'stage50', name: '踏遍五十關', tier: 'rare', desc: '通過 50 個字母關', test: st => st.clearedStages >= 50, prog: st => [st.clearedStages, 50] },
+    // --- 史詩 ---
+    { id: 'streak30', name: '一月不輟', tier: 'epic', desc: '連續學習 30 天', test: st => st.streak >= 30, prog: st => [st.streak, 30] },
+    { id: 'w2000', name: '兩千字斬', tier: 'epic', desc: '學會 2000 個單字', test: st => st.known >= 2000, prog: st => [st.known, 2000] },
+    { id: 'combo50', name: '五十連擊', tier: 'epic', desc: '單關連續答對 50 題', test: st => st.bestCombo >= 50, prog: st => [st.bestCombo, 50] },
+    { id: 'master1000', name: '長期記憶・千字', tier: 'epic', desc: '1000 個字進入長期記憶（box 5 以上）', test: st => st.mastered >= 1000, prog: st => [st.mastered, 1000] },
+    { id: 'lv20', name: '二十級', tier: 'epic', desc: '等級達到 Lv.20', test: st => st.level >= 20, prog: st => [st.level, 20] },
+    { id: 'stars200', name: '星塵滿載', tier: 'epic', desc: '累積 200 顆星', test: st => st.stars >= 200, prog: st => [st.stars, 200] },
+    { id: 'writer100', name: '百句作家', tier: 'epic', desc: '累積寫下 100 句自由造句', test: st => st.freeCount >= 100, prog: st => [st.freeCount, 100] },
+    { id: 'hell10', name: '地獄常客', tier: 'epic', desc: '在「地獄」難度通關 10 次', test: st => st.hellClears >= 10, prog: st => [st.hellClears, 10] },
+    // --- 傳說（很難）---
+    { id: 'w4000', name: '四千字斬', tier: 'legend', desc: '學會 4000 個單字', test: st => st.known >= 4000, prog: st => [st.known, 4000] },
+    { id: 'streak100', name: '百日不輟', tier: 'legend', desc: '連續學習 100 天', test: st => st.streak >= 100, prog: st => [st.streak, 100] },
+    { id: 'gram32', name: '文法全通', tier: 'legend', desc: '32 個文法點全部精熟', test: st => st.gramDone >= 32, prog: st => [st.gramDone, 32] },
+    { id: 'allstage', name: '走完全圖', tier: 'legend', desc: '六個大關的每一個字母關都通過', test: st => st.playableStages > 0 && st.clearedStages >= st.playableStages, prog: st => [st.clearedStages, st.playableStages || 150] },
+    { id: 'allthree', name: '全三星', tier: 'legend', desc: '每一個字母關都拿到三星', test: st => st.playableStages > 0 && st.threeStars >= st.playableStages, prog: st => [st.threeStars, st.playableStages || 150] },
+    // --- 究極（全書）---
+    {
+      id: 'allwords', name: '全書背完', tier: 'ultra',
+      desc: `把全書 ${'6012'} 個單字全部學會`,
+      test: st => st.total > 0 && st.known >= st.total, prog: st => [st.known, st.total],
+    },
+    {
+      id: 'allmaster', name: '全書精熟', tier: 'ultra',
+      desc: '全書每一個字都進入長期記憶（box 5 以上，等於全部複習到第 30 天以上還記得）',
+      test: st => st.total > 0 && st.mastered >= st.total, prog: st => [st.mastered, st.total],
+    },
   ];
+  const BADGE_TIER = {
+    common: { name: '普通', cls: 'r-common' },
+    rare: { name: '稀有', cls: 'r-rare' },
+    epic: { name: '史詩', cls: 'r-epic' },
+    legend: { name: '傳說', cls: 'r-legend' },
+    ultra: { name: '究極', cls: 'r-ultra' },
+  };
 
   function stats() {
     const s = load();
@@ -505,15 +546,42 @@
       for (const dstr in s.days) (s.days[dstr].gram || []).forEach(g => { if (g.id === id && g.ok && g.attempt === 1) right++; });
       return total.length && right >= total.length;
     }).length;
+    // 成就要用的累積數字：星數、通關數、全三星數、寶箱、寶石、地獄通關次數
+    let stars = 0, clearedStages = 0, threeStars = 0;
+    for (const key in (s.map || {})) {
+      const m = s.map[key];
+      stars += m.stars || 0;
+      if (m.cleared) clearedStages++;
+      if ((m.stars || 0) >= 3) threeStars++;
+    }
+    let playableStages = 0;
+    for (let lv = 1; lv <= 6; lv++) LETTERS.forEach(L => { if (bucket(lv, L).length) playableStages++; });
+    let chests = 0, gems = 0, hellClears = 0, minutes = 0;
+    for (const dstr in s.days) {
+      const d = s.days[dstr];
+      chests += (d.chests || []).length;
+      gems += (d.drops || []).filter(x => /^gem_/.test(x.id)).reduce((a, x) => a + x.n, 0);
+      hellClears += (d.runs || []).filter(r => r.passed && r.diff === 'extreme').length;
+      minutes += Math.round((d.runs || []).reduce((a, r) => a + (r.sec || 0), 0) / 60);
+    }
     return {
-      known, mastered, seen: Object.keys(s.words).length,
+      known, mastered, seen: Object.keys(s.words).length, total: window.VOCAB.length,
       streak: s.profile.streak, bestStreak: s.profile.bestStreak || 0,
       daysStudied: Object.keys(s.days).filter(d => (s.days[d].log || []).length).length,
       xp: s.profile.xp, level: xpLevel(s.profile.xp),
       freeCount, gramDone,
       bestCombo: s.profile.bestCombo || 0,
       perfectStage: !!s.profile.everPerfect,
+      stars, clearedStages, threeStars, playableStages,
+      chests, gems, hellClears, minutes,
     };
+  }
+  /** 一個成就目前的進度（畫進度條用）。 */
+  function badgeProgress(b, st) {
+    const s = st || stats();
+    const p = b.prog ? b.prog(s) : [b.test(s) ? 1 : 0, 1];
+    const goal = Math.max(1, p[1] || 1);
+    return { cur: Math.min(p[0] || 0, goal), goal, pct: Math.min(1, (p[0] || 0) / goal) };
   }
 
   function checkBadges(extra) {
@@ -614,44 +682,60 @@
   // ---------- 金幣與商店 ----------
   /* 刻意不賣「跳過一題」「直接看答案」這類道具 —— 那會讓作答紀錄失真，
      而這份紀錄要拿去做家長回報與間隔複習排程。賣的是難度緩衝與外觀。 */
+  /* 價格刻意訂得很痛（北歐物價）：一天認真學大概賺 300–600 金幣，
+     所以護符要存好幾天、夥伴與傳說外觀要存好幾週。東西貴，拿到才有感覺。 */
   const SHOP = [
     // 消耗品：開關前自動使用（刪去法與復活石是當下手動用）
-    { id: 'heart', name: '護心符', cost: 45, kind: 'consumable', rarity: 'common', desc: '這一關生命值 +1' },
-    { id: 'hourglass', name: '沙漏', cost: 50, kind: 'consumable', rarity: 'common', desc: '這一關每題時間 +50%' },
-    { id: 'fifty', name: '刪去法', cost: 35, kind: 'consumable', rarity: 'common', desc: '答題時按一下，刪掉兩個錯的選項' },
-    { id: 'xp2', name: '雙倍 XP 卡', cost: 110, kind: 'consumable', rarity: 'rare', desc: '這一關結算 XP ×2' },
-    { id: 'xp3', name: '三倍 XP 卡', cost: 260, kind: 'consumable', rarity: 'epic', desc: '這一關結算 XP ×3（比雙倍卡優先使用）' },
-    { id: 'revive', name: '復活石', cost: 180, kind: 'consumable', rarity: 'epic', desc: 'GAME OVER 時可以原地續命，血量回 1（每關限一次）' },
-    { id: 'bigheart', name: '大護心符', cost: 130, kind: 'consumable', rarity: 'rare', desc: '這一關生命值 +3' },
-    // 被動：持有就生效
-    { id: 'shield', name: '連勝護盾', cost: 200, kind: 'auto', rarity: 'rare', desc: '闖關失敗時自動擋下，連勝不歸零（用掉一個）' },
-    { id: 'charm_luck', name: '幸運符', cost: 420, kind: 'auto', rarity: 'epic', desc: '寶箱開出道具機率 +20%，金幣與 XP ×1.15' },
-    { id: 'charm_magnet', name: '金幣磁鐵', cost: 480, kind: 'auto', rarity: 'epic', desc: '通關金幣 ×1.25' },
-    { id: 'charm_scholar', name: '學者之心', cost: 450, kind: 'auto', rarity: 'epic', desc: '每日簽到獎勵 ×1.2' },
+    { id: 'fifty', name: '刪去法', cost: 90, kind: 'consumable', rarity: 'common', desc: '答題時按一下，刪掉兩個錯的選項' },
+    { id: 'heart', name: '護心符', cost: 120, kind: 'consumable', rarity: 'common', desc: '這一關生命值 +1' },
+    { id: 'hourglass', name: '沙漏', cost: 140, kind: 'consumable', rarity: 'common', desc: '這一關每題時間 +50%' },
+    { id: 'bigheart', name: '大護心符', cost: 380, kind: 'consumable', rarity: 'rare', desc: '這一關生命值 +3' },
+    { id: 'hourglass2', name: '大沙漏', cost: 420, kind: 'consumable', rarity: 'rare', desc: '這一關每題時間 ×2（比小沙漏優先使用）' },
+    { id: 'xp2', name: '雙倍 XP 卡', cost: 450, kind: 'consumable', rarity: 'rare', desc: '這一關結算 XP ×2' },
+    { id: 'xp3', name: '三倍 XP 卡', cost: 1200, kind: 'consumable', rarity: 'epic', desc: '這一關結算 XP ×3（比雙倍卡優先使用）' },
+    { id: 'revive', name: '復活石', cost: 900, kind: 'consumable', rarity: 'epic', desc: 'GAME OVER 時可以原地續命，血量回 1（每關限一次）' },
+    // 素材包：買下去立刻進背包（不佔道具欄）
+    { id: 'pack_dust', name: '星塵袋', cost: 700, kind: 'pack', rarity: 'rare', desc: '立刻獲得 ✨ 星塵 ×3', give: { stardust: 3 } },
+    { id: 'pack_gem', name: '寶石袋', cost: 950, kind: 'pack', rarity: 'rare', desc: '立刻獲得藍／綠／紅寶石共 5 顆', give: { gem_blue: 2, gem_green: 2, gem_red: 1 } },
+    { id: 'pack_scroll', name: '卷軸捆', cost: 1100, kind: 'pack', rarity: 'epic', desc: '立刻獲得 📜 古卷軸 ×3', give: { scroll: 3 } },
+    { id: 'pack_key', name: '鑰匙串', cost: 1600, kind: 'pack', rarity: 'epic', desc: '立刻獲得 🔑 寶箱鑰匙 ×2（可開兩個銀寶箱）', give: { key: 2 } },
+    { id: 'pack_diamond', name: '金鑽禮盒', cost: 3200, kind: 'pack', rarity: 'legend', desc: '立刻獲得 💎 金鑽石 ×3 ＋ ✨ 星塵 ×5', give: { gem_gold: 3, stardust: 5 } },
+    // 被動護符：持有就生效，效果可疊加
+    { id: 'shield', name: '連勝護盾', cost: 800, kind: 'auto', rarity: 'rare', desc: '闖關失敗時自動擋下，連勝不歸零（用掉一個）' },
+    { id: 'charm_luck', name: '幸運符', cost: 2600, kind: 'auto', rarity: 'epic', desc: '寶箱開出道具機率 +20%，金幣與 XP ×1.15' },
+    { id: 'charm_scholar', name: '學者之心', cost: 2900, kind: 'auto', rarity: 'epic', desc: '每日簽到獎勵 ×1.2' },
+    { id: 'charm_magnet', name: '金幣磁鐵', cost: 3400, kind: 'auto', rarity: 'epic', desc: '通關金幣 ×1.25' },
+    { id: 'charm_gem', name: '素材磁鐵', cost: 4200, kind: 'auto', rarity: 'legend', desc: '每次通關多掉 1 顆該級別的寶石' },
+    { id: 'charm_xp', name: '經驗護符', cost: 5000, kind: 'auto', rarity: 'legend', desc: '答對的 XP ×1.1（可與夥伴疊加）' },
     // 夥伴：同時只能帶一隻
-    { id: 'pet_owl', name: '夥伴：貓頭鷹', cost: 900, kind: 'pet', rarity: 'legend', desc: '答對的 XP ×1.05' },
-    { id: 'pet_fox', name: '夥伴：小狐狸', cost: 950, kind: 'pet', rarity: 'legend', desc: '連擊分 ×1.5' },
-    { id: 'pet_dragon', name: '夥伴：龍寶寶', cost: 1200, kind: 'pet', rarity: 'legend', desc: '寶箱金幣 ×1.15' },
+    { id: 'pet_owl', name: '夥伴：貓頭鷹', cost: 6000, kind: 'pet', rarity: 'legend', desc: '答對的 XP ×1.05' },
+    { id: 'pet_fox', name: '夥伴：小狐狸', cost: 7000, kind: 'pet', rarity: 'legend', desc: '連擊分 ×1.5' },
+    { id: 'pet_dragon', name: '夥伴：龍寶寶', cost: 8500, kind: 'pet', rarity: 'legend', desc: '寶箱金幣 ×1.15' },
+    { id: 'pet_unicorn', name: '夥伴：獨角獸', cost: 15000, kind: 'pet', rarity: 'ultra', desc: '開寶箱時 25% 機率自動升一級（木→銀→金）' },
     // 外觀
-    { id: 'theme_forest', name: '主題：森林', cost: 350, kind: 'theme', rarity: 'rare', desc: '綠意配色' },
-    { id: 'theme_sunset', name: '主題：夕陽', cost: 350, kind: 'theme', rarity: 'rare', desc: '暖橘配色' },
-    { id: 'theme_ocean', name: '主題：深海', cost: 480, kind: 'theme', rarity: 'epic', desc: '深藍配色' },
-    { id: 'theme_sakura', name: '主題：櫻花', cost: 520, kind: 'theme', rarity: 'epic', desc: '粉櫻配色' },
-    { id: 'theme_night', name: '主題：星空', cost: 700, kind: 'theme', rarity: 'legend', desc: '深紫星空配色' },
-    // 稱號
-    { id: 'title_scholar', name: '稱號：苦讀生', cost: 300, kind: 'title', rarity: 'common', desc: '顯示在頂端' },
-    { id: 'title_hunter', name: '稱號：獵字人', cost: 300, kind: 'title', rarity: 'common', desc: '顯示在頂端' },
-    { id: 'title_speller', name: '稱號：拼字達人', cost: 550, kind: 'title', rarity: 'rare', desc: '顯示在頂端' },
-    { id: 'title_knight', name: '稱號：文法騎士', cost: 550, kind: 'title', rarity: 'rare', desc: '顯示在頂端' },
-    { id: 'title_hero', name: '稱號：六級勇者', cost: 1500, kind: 'title', rarity: 'legend', desc: '最貴的虛榮，值得' },
+    { id: 'theme_forest', name: '主題：森林', cost: 1500, kind: 'theme', rarity: 'rare', desc: '綠意配色' },
+    { id: 'theme_sunset', name: '主題：夕陽', cost: 1500, kind: 'theme', rarity: 'rare', desc: '暖橘配色' },
+    { id: 'theme_ocean', name: '主題：深海', cost: 2400, kind: 'theme', rarity: 'epic', desc: '深藍配色' },
+    { id: 'theme_sakura', name: '主題：櫻花', cost: 2600, kind: 'theme', rarity: 'epic', desc: '粉櫻配色' },
+    { id: 'theme_night', name: '主題：星空', cost: 4500, kind: 'theme', rarity: 'legend', desc: '深紫星空配色' },
+    { id: 'theme_aurora', name: '主題：極光', cost: 9000, kind: 'theme', rarity: 'legend', desc: '青綠極光配色' },
+    { id: 'theme_gold', name: '主題：黃金', cost: 20000, kind: 'theme', rarity: 'ultra', desc: '整站鑲金。最貴的虛榮。' },
+    // 稱號：只留三個，最後一個貴到誇張
+    { id: 'title_scholar', name: '稱號：苦讀生', cost: 1200, kind: 'title', rarity: 'common', desc: '顯示在頂端' },
+    { id: 'title_hunter', name: '稱號：獵字人', cost: 2500, kind: 'title', rarity: 'rare', desc: '顯示在頂端' },
+    { id: 'title_hero', name: '稱號：六級勇者', cost: 25000, kind: 'title', rarity: 'ultra', desc: '存到這個的人，大概已經背完全書了' },
   ];
-  const RARITY = { common: { name: '普通', cls: 'r-common' }, rare: { name: '稀有', cls: 'r-rare' }, epic: { name: '史詩', cls: 'r-epic' }, legend: { name: '傳說', cls: 'r-legend' } };
+  const RARITY = {
+    common: { name: '普通', cls: 'r-common' }, rare: { name: '稀有', cls: 'r-rare' },
+    epic: { name: '史詩', cls: 'r-epic' }, legend: { name: '傳說', cls: 'r-legend' },
+    ultra: { name: '究極', cls: 'r-ultra' },
+  };
   const shopItem = id => SHOP.find(x => x.id === id);
 
   /* 被動效果集中在這裡算，畫面與結算都呼叫同一組函式。
      刻意沒有任何「看答案／跳過題目」的效果 —— 那會污染作答紀錄與複習排程。 */
   const petIs = id => equipped('pet') === id;
-  function xpMult() { return petIs('pet_owl') ? 1.05 : 1; }
+  function xpMult() { return (petIs('pet_owl') ? 1.05 : 1) * (owned('charm_xp') ? 1.1 : 1); }
   function comboMult() { return petIs('pet_fox') ? 1.5 : 1; }
   function coinMult() { return owned('charm_magnet') ? 1.25 : 1; }
   function checkinMult() { return owned('charm_scholar') ? 1.2 : 1; }
@@ -693,10 +777,17 @@
   function buy(id) {
     const it = shopItem(id);
     if (!it) return { ok: false, msg: '沒有這個道具' };
-    if (it.kind !== 'consumable' && owned(id)) return { ok: false, msg: '已經有了' };
+    // 素材包可以重複買（買了直接變素材）；消耗品也可以疊；其他一件就夠
+    if (it.kind !== 'consumable' && it.kind !== 'pack' && owned(id)) return { ok: false, msg: '已經有了' };
     const cost = priceOf(id);
     if (coins() < cost) return { ok: false, msg: `金幣不夠（還差 ${cost - coins()}）` };
     addCoins(-cost);
+    if (it.kind === 'pack') {
+      // 素材包不進道具欄，直接發素材（並寫進掉落紀錄）
+      grantMats(Object.keys(it.give).map(k => ({ id: k, n: it.give[k] })), '商店：' + it.name);
+      save(true);
+      return { ok: true, item: it, pack: true };
+    }
     const inv = inventory();
     inv[id] = (inv[id] || 0) + 1;
     save(true);
@@ -768,6 +859,7 @@
     const lv = x.lv || 1, stars = x.stars || 1, combo = x.combo || 0;
     const base = lv <= 2 ? 'gem_blue' : lv <= 4 ? 'gem_green' : 'gem_red';
     out.push({ id: base, n: 1 + (stars >= 2 ? 1 : 0) });
+    if (owned('charm_gem')) out[0].n += 1;            // 素材磁鐵
     if (stars >= 3 && Math.random() < 0.5) out.push({ id: 'gem_gold', n: 1 });
     if (combo >= 8) out.push({ id: 'stardust', n: Math.min(3, Math.floor(combo / 8)) });
     if (Math.random() < 0.18) out.push({ id: 'scroll', n: 1 });
@@ -866,6 +958,8 @@
   }
   /** 開箱：直接入帳並寫進紀錄（時間＋內容）。 */
   function openChest(tier) {
+    // 獨角獸：開箱時有機會自動升一級
+    if (petIs('pet_unicorn') && Math.random() < 0.25) tier = upgradeChest(tier || 'wood');
     const c = CHEST[tier] || CHEST.wood;
     const bo = chestBoost();
     const pick = (a, b) => Math.round((a + Math.floor(Math.random() * (b - a + 1))) * bo.mult);
@@ -1376,7 +1470,7 @@
     answerLog, logTotals, progress,
     levelReward, claimLevelUps,
     addXp, xpLevel, xpInLevel, XP_PER_LEVEL, touchStreak,
-    BADGES, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
+    BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
     summary, history, reset,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
