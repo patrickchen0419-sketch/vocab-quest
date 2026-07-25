@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>單字闖關 — 高中英文參考詞彙表</title>
+<!-- 別讓瀏覽器拿舊的快取：改過 css/js 之後常常「看起來沒更新」，就是被快取住了 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='50' font-size='52'>🎯</text></svg>">
+<!-- ?v= 是版號：改過 src/ 裡的檔案就把數字 +1，瀏覽器就一定會重新讀 -->
+<link rel="stylesheet" href="src/style.css?v=3">
+</head>
+<body>
+<div class="wrap"><div class="card"><h2>載入中…</h2><p class="muted">正在讀取 6012 字的字庫。</p></div></div>
+
+<!-- 資料：用 <script> 載入而不是 fetch()，這樣直接雙擊 index.html（file://）也能跑，不必開伺服器 -->
+<script src="data/words.js"></script>
+<script src="data/grammar.js"></script>
+<script src="data/sentences.js"></script>
+<script src="src/store.js?v=3"></script>
+<script src="src/quiz.js?v=3"></script>
+<script src="src/app.js?v=3"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# 原始 PDF 是大學入學考試中心的著作，不放進公開 repo（本專案只放整理後的學習資料）
+reference/*.pdf
+
+# 每日學習紀錄是個人資料，不上傳
+progress/*.json
+progress/*.html
+progress/*.csv
+
+# 備份與暫存
+*-backup-*.json
+.DS_Store
+Thumbs.db
