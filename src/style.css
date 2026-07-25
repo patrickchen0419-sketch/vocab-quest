@@ -408,6 +408,57 @@ nav.tabs .btn.on { background: var(--ac); color: #07231b; border-color: transpar
 }
 .chesticon.pop { animation: pop2 .5s cubic-bezier(.2,1.6,.4,1); }
 @keyframes pop2 { from { transform: scale(.4); opacity: 0; } }
+/* 全螢幕開箱場景：寶箱是這個遊戲的高光時刻，值得整個畫面 */
+.chestscene {
+  position: relative; min-height: 78vh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 10px 4px 30px; overflow: hidden;
+}
+.chestscene .cshead { text-align: center; position: relative; z-index: 2; }
+.chestscene .cstier { font-size: 22px; font-weight: 900; letter-spacing: 1px; }
+.chestscene h2 { font-size: 26px; margin: 6px 0 2px; }
+.csglow {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(closest-side at 50% 45%, rgba(245, 185, 66, .22), transparent 70%),
+    conic-gradient(from 0deg at 50% 45%, transparent 0 8deg, rgba(255, 255, 255, .05) 8deg 10deg, transparent 10deg 30deg);
+  animation: spin 26s linear infinite;
+}
+.csglow.big { animation: spin 12s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
+.chestscene.c-silver .csglow { background: radial-gradient(closest-side at 50% 45%, rgba(190, 205, 230, .2), transparent 70%); }
+.chestscene.c-rainbow .csglow {
+  background: conic-gradient(from 0deg at 50% 45%, rgba(255, 123, 176, .25), rgba(245, 185, 66, .25), rgba(61, 219, 217, .25), rgba(169, 131, 255, .25), rgba(255, 123, 176, .25));
+  animation: spin 9s linear infinite;
+}
+.chesticon.huge { font-size: 96px; line-height: 1; }
+.lootbig { display: grid; gap: 10px; justify-content: center; margin-top: 22px; position: relative; z-index: 2; }
+.loot.big {
+  font-size: 19px; padding: 12px 26px; text-align: center; min-width: 260px;
+  animation: lootin .45s cubic-bezier(.2, 1.5, .4, 1) both;
+}
+@keyframes lootin { from { transform: translateY(14px) scale(.9); opacity: 0; } }
+.loot.rare {
+  color: #10121c; font-weight: 900; border: none;
+  background: linear-gradient(90deg, #ff7bb0, #f5b942, #3ddbd9);
+  box-shadow: 0 6px 24px rgba(245, 185, 66, .3);
+}
+.chestpick.big { gap: 18px; margin: 26px 0 6px; position: relative; z-index: 2; }
+.chestpick.big .chestbtn { padding: 26px 22px; border-radius: 22px; }
+.chestpick.big .cbicon { font-size: 62px; line-height: 1; display: block; }
+.chestpick.big .cbnum { font-size: 12px; color: var(--tx2); }
+.chestbtn.c-silver { border-color: #bfd0e8; }
+.chestbtn.c-gold { border-color: var(--gold); }
+.chestbtn.c-rainbow {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--card2), #1b2740) padding-box,
+    linear-gradient(120deg, #ff7bb0, #f5b942, #3ddbd9, #a983ff) border-box;
+  border-width: 2px; border-style: solid;
+}
+.chestcard.c-rainbow { border-color: var(--pink); background: linear-gradient(160deg, #33203a 0%, var(--card) 60%); }
+.chesticon.c-rainbow { filter: drop-shadow(0 4px 14px rgba(255, 123, 176, .45)); }
+
 .chestpick { display: flex; gap: 12px; justify-content: center; margin: 16px 0 6px; }
 .chestbtn {
   display: grid; gap: 4px; place-items: center; cursor: pointer;

@@ -608,19 +608,81 @@ t('升等會發獎勵，而且同一等只發一次', () => {
 });
 
 console.log('\n--- 寶箱 ---');
-t('寶箱等級依表現決定，開箱給金幣與 XP 並記錄', () => {
-  assert(S.chestTier({ stars: 3, retries: 0 }) === 'gold', '三星不重來應該是金寶箱');
-  assert(S.chestTier({ stars: 2, retries: 0 }) === 'silver', '二星應該是銀寶箱');
-  assert(S.chestTier({ stars: 1, combo: 12 }) === 'silver', '高連擊應該升到銀');
+t('大寶箱不能隨便給：金寶箱要 10 題以上全對不重來', () => {
+  assert(S.chestTier({ stars: 3, retries: 0, count: 5 }) === 'silver', '小關卡全對只能給銀寶箱');
+  assert(S.chestTier({ stars: 3, retries: 1, count: 20 }) === 'silver', '重來過就不該給金寶箱');
+  assert(S.chestTier({ stars: 3, retries: 0, count: 10 }) === 'gold', '10 題全對不重來應該給金');
+  assert(S.chestTier({ stars: 2, retries: 0, count: 20 }) === 'silver', '二星是銀寶箱');
+  assert(S.chestTier({ stars: 1, combo: 12 }) === 'silver', '高連擊可以升到銀');
   assert(S.chestTier({ stars: 1, combo: 2 }) === 'wood', '普通表現是木寶箱');
-  assert(S.upgradeChest('wood') === 'silver' && S.upgradeChest('gold') === 'gold', '升級規則不對');
+});
+
+t('彩虹寶箱需要 20 題全對＋連擊 20＋挑戰難度以上', () => {
+  const base = { stars: 3, retries: 0, count: 20, combo: 20, diff: 'hard' };
+  assert(S.chestTier(base) === 'rainbow', '條件全滿卻不是彩虹');
+  assert(S.chestTier(Object.assign({}, base, { diff: 'normal' })) === 'gold', '標準難度不該給彩虹');
+  assert(S.chestTier(Object.assign({}, base, { combo: 19 })) === 'gold', '連擊不足不該給彩虹');
+  assert(S.chestTier(Object.assign({}, base, { count: 19 })) === 'gold', '題數不足不該給彩虹');
+  assert(S.chestTier(Object.assign({}, base, { retries: 1 })) === 'silver', '重來過不該給彩虹');
+  // 一般升級最多到金，只有加碼題（allowRainbow）能推到彩虹
+  assert(S.upgradeChest('wood') === 'silver', '木應該升銀');
+  assert(S.upgradeChest('gold') === 'gold', '一般情況金不該再升');
+  assert(S.upgradeChest('gold', true) === 'rainbow', '加碼題應該能把金推到彩虹');
+});
+
+t('開箱抽獎：等級越高抽越多次，內容都會入帳並記錄', () => {
   const p = S.profile;
-  p.coins = 0; p.xp = 0; p.inventory = {};
+  p.coins = 0; p.xp = 0; p.inventory = {}; p.materials = {}; p.equipped = {};
   S.day().chests = [];
   const r = S.openChest('gold');
   assert(r.coin > 0 && r.xp > 0 && r.at, '開箱內容不完整：' + JSON.stringify(r));
+  assert(r.drops.length >= S.CHEST.gold.rolls, `金寶箱應該抽 ${S.CHEST.gold.rolls} 次，實際 ${r.drops.length}`);
+  assert(r.drops.every(d => d.label), '每個獎品都要有顯示文字');
   assert(S.coins() === r.coin, '金幣沒入帳');
+  const matTotal = S.MAT_ORDER.reduce((a, id) => a + S.matCount(id), 0);
+  const itemTotal = Object.values(S.inventory()).reduce((a, n) => a + n, 0);
+  const gotFromDrops = r.drops.filter(d => d.kind === 'mat').reduce((a, d) => a + d.n, 0);
+  assert(matTotal >= gotFromDrops, '素材沒進背包');
+  assert(matTotal + itemTotal > 0, '一個獎品都沒發：' + JSON.stringify(r.drops));
   assert(S.chestLog().length === 1, '寶箱紀錄沒寫');
+  assert(S.chestLog()[0].drops.length === r.drops.length, '紀錄沒存獎品明細');
+});
+
+t('稀有獎品機率低：木寶箱幾乎抽不到鑰匙／神秘禮物，彩虹明顯常見', () => {
+  const rate = (tier, ids) => {
+    let hit = 0;
+    for (let k = 0; k < 4000; k++) if (ids.includes(S.rollOne(tier).id)) hit++;
+    return hit / 4000;
+  };
+  const rare = ['m_key', 'i_revive', 'i_xp3', 'jackpot', 'megaxp', 'mystery', 'm_diamond'];
+  const wood = rate('wood', rare), gold = rate('gold', rare), rainbow = rate('rainbow', rare);
+  assert(wood < 0.05, '木寶箱的稀有率太高：' + wood);
+  assert(gold > wood * 3, `金寶箱的稀有率應該明顯更高：${gold} vs ${wood}`);
+  assert(rainbow > gold, `彩虹應該比金更容易出稀有：${rainbow} vs ${gold}`);
+  assert(rate('wood', ['mystery']) < 0.01, '神秘禮物在木寶箱不該常見');
+});
+
+t('神秘禮物給的是還沒擁有的高階商品，全都有了就換成金幣大獎', () => {
+  const p = S.profile;
+  p.inventory = {}; p.coins = 0; p.materials = {};
+  let gift = null;
+  for (let k = 0; k < 60 && !gift; k++) {
+    const r = S.openChest('rainbow');
+    gift = (r.drops || []).find(d => d.kind === 'gift');
+  }
+  if (gift) {
+    const it = S.shopItem(gift.item);
+    assert(it && ['epic', 'legend', 'ultra'].includes(it.rarity), '神秘禮物應該是高階商品：' + JSON.stringify(gift));
+    assert(S.inventory()[gift.item] >= 1, '神秘禮物沒進背包');
+  }
+  // 全部買光的情況：改給金幣大獎
+  S.SHOP.forEach(x => { if (x.kind !== 'pack' && x.kind !== 'consumable') S.inventory()[x.id] = 1; });
+  for (let k = 0; k < 40; k++) {
+    const r = S.openChest('rainbow');
+    const g = (r.drops || []).find(d => d.id === 'jackpot' && d.special);
+    if (g) { assert(g.n >= 150, '金幣大獎太小'); break; }
+  }
+  p.inventory = {};
 });
 
 console.log('\n--- 任務：釘住、進度、每週每月 ---');

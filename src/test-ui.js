@@ -46,6 +46,21 @@ class El {
   set textContent(v) { this.children = []; this._text = String(v); }
   set innerHTML(html) { this.children = parseInto(this, String(html)); }
   get innerHTML() { return serialize(this); }
+  /* app.js 會用 el.outerHTML = '...' 就地換掉一個節點（例如開完箱把寶箱卡換成已開啟）。
+     少了這個 setter，那行在測試裡會變成「設一個沒人看的屬性」，等於測不到真實行為。 */
+  get outerHTML() {
+    return `<${this.tag}${Object.entries(this.attrs).map(([k, v]) => ` ${k}="${v}"`).join('')}>${serialize(this)}</${this.tag}>`;
+  }
+  set outerHTML(html) {
+    const p = this.parent;
+    if (!p) { this.innerHTML = html; return; }
+    const tmp = new El('div');
+    tmp.innerHTML = String(html);
+    const kids = tmp.children.map(c => { if (c instanceof El) c.parent = p; return c; });
+    const idx = p.children.indexOf(this);
+    if (idx < 0) return;
+    p.children.splice(idx, 1, ...kids);
+  }
   appendChild(c) { c.parent = this; this.children.push(c); return c; }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
   addEventListener(t, fn) { (this._ev = this._ev || {})[t] = (this._ev[t] || []).concat(fn); }
@@ -716,6 +731,14 @@ t('通關後給寶箱，可以開，也可以先挑戰加碼題', () => {
   assert(has('本關最高連擊'), '沒有顯示本關連擊');
 });
 
+t('結算畫面看得到寶箱與它的條件', () => {
+  const t2 = S.CHEST[window.__chest.tier];
+  assert(has(t2.name), '沒顯示寶箱名稱：' + txt().slice(0, 300));
+  assert(has('抽 ' + t2.rolls + ' 次獎品'), '沒說明抽幾次獎');
+  assert(has('鑰匙') && has('神秘禮物'), '沒提到稀有獎品');
+  assert(doc.querySelector('.chesticon'), '沒有寶箱圖示');
+});
+
 t('加碼題只有一題，答對讓寶箱升級', () => {
   const tierBefore = window.__chest.tier;
   click('[data-act="bonusRound"]');
@@ -729,15 +752,25 @@ t('加碼題只有一題，答對讓寶箱升級', () => {
   assert(order.indexOf(window.__chest.tier) > order.indexOf(tierBefore) || tierBefore === 'gold', '寶箱沒升級');
 });
 
-t('開寶箱會拿到金幣與 XP，並寫進紀錄', () => {
+t('開寶箱是全螢幕畫面：先選箱，再一項一項亮出獎品', () => {
   const coinsBefore = S.coins(), logBefore = S.chestLog().length;
   click('[data-act="openChest"]');
-  assert(has('選一個箱子'), '沒有選箱畫面：' + txt().slice(0, 200));
-  click('[data-close="0"]');
-  assert(has('+') && (has('🪙') || has('XP')), '沒顯示開出的東西');
+  assert(doc.querySelector('.chestscene'), '沒有進到全螢幕開箱畫面');
+  assert(has('選一個箱子打開'), '沒有選箱提示：' + txt().slice(0, 200));
+  assert(doc.querySelectorAll('[data-openchest]').length === 3, '不是三個箱子');
+  assert(has('神秘禮物'), '沒說明稀有獎品');
+  click('[data-openchest="1"]');
+  assert(doc.querySelector('.chestscene.open'), '沒有進到開箱結果畫面');
+  assert(doc.querySelectorAll('.loot.big').length >= 3, '獎品沒有一項一項列出');
   assert(S.coins() > coinsBefore, '金幣沒入帳');
   assert(S.chestLog().length === logBefore + 1, '寶箱紀錄沒寫');
-  click('[data-close="ok"]');
+  const r = S.chestLog()[0];
+  assert(r.drops && r.drops.length >= 1, '紀錄沒存獎品明細');
+  click('[data-act="chestDone"]');
+  // 回到開箱前的那個畫面（這裡是加碼題結算），而且「開寶箱」鈕要換成已開箱，不留死按鈕
+  assert(has('檢討'), '收下後沒回到原本的畫面：' + txt().slice(600, 900));
+  assert(!doc.querySelector('[data-act="openChest"]'), '開完箱還留著開寶箱按鈕');
+  assert(has('已開箱') || doc.querySelector('.chestcard.opened'), '沒顯示已開箱的結果');
 });
 
 console.log('\n--- 速度分與連擊 ---');
@@ -1054,14 +1087,16 @@ t('素材夠才能按合成，按了會拿到道具', () => {
   assert(hard && hard.disabled, '素材不夠的配方應該停用');
 });
 
-t('背包可以用鑰匙開箱', () => {
+t('背包可以用鑰匙開箱，同樣走全螢幕演出', () => {
   const coinsBefore = S.coins();
   click('[data-act="useKey"]');
-  assert(has('+') && has('XP'), '沒顯示開箱結果：' + txt().slice(0, 200));
-  assert(S.coins() > coinsBefore, '金幣沒入帳');
+  assert(doc.querySelector('.chestscene'), '沒進全螢幕開箱畫面');
   assert(S.matCount('key') === 0, '鑰匙沒消耗');
-  click('[data-close="ok"]');
-  assert(has('背包'), '關掉後應該回到背包');
+  click('[data-openchest="0"]');
+  assert(doc.querySelector('.chestscene.open'), '沒有開箱結果');
+  assert(S.coins() > coinsBefore, '金幣沒入帳');
+  click('[data-act="chestDone"]');
+  assert(has('背包'), '收下後應該回到背包');
 });
 
 t('通關會掉素材並顯示在結算畫面', () => {

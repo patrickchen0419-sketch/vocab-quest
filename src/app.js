@@ -915,8 +915,11 @@
     const used = rec ? rec.sec : 0;
     // 通關掉落素材（寶石／星塵／鑰匙）→ 進背包，可以拿去合成
     const drops = passed ? S.grantMats(S.matDrop({ passed, lv, stars, combo: run.bestCombo }), `第 ${lv} 級 ${letter} 關`) : [];
-    // 通關寶箱：表現越好箱子越好；加碼題答對可以再升一級
-    const tier = passed ? S.chestTier({ stars, combo: run.bestCombo, retries: run.retries }) : null;
+    // 通關寶箱：表現越好箱子越好。金寶箱要 10 題以上全對不重來，彩虹要 20 題全對＋連擊 20＋挑戰難度以上
+    const tier = passed ? S.chestTier({
+      stars, combo: run.bestCombo, retries: run.retries,
+      count: graded.length, diff: S.diff().id,
+    }) : null;
     window.__chest = passed ? { tier, lv, letter, ids: [...new Set(run.answers.map(a => a.q.i).filter(i => i != null))], opened: false, bonusUsed: false } : null;
 
     const head = passed
@@ -966,61 +969,100 @@
     const t = S.CHEST[c.tier];
     if (c.opened) {
       const r = c.reward || {};
-      const it = r.item && S.shopItem(r.item);
       return `<div class="card chestcard opened">
-        <div class="chestrow"><div class="chesticon pop">${t.icon}</div>
+        <div class="chestrow"><div class="chesticon pop ${t.cls}">${t.icon}</div>
           <div><b>${esc(t.name)}已開啟</b>
-            <div class="tiny">🪙 +${r.coin}　✨ +${r.xp} XP${it ? `　🧪 ${esc(it.name)} ×1` : ''}</div></div></div>
-        <p class="tiny">寶箱等級看表現：三星不重來 → 💎 金寶箱。</p>
+            <div class="tiny">🪙 +${r.coin}　✨ +${r.xp} XP</div>
+            <div class="tiny">${(r.drops || []).map(d => esc(d.label)).join('　')}</div></div></div>
       </div>`;
     }
-    return `<div class="card chestcard">
+    return `<div class="card chestcard ${t.cls}">
       <h3>🎉 通關獎勵</h3>
       <div class="chestrow">
-        <div class="chesticon shake">${t.icon}</div>
+        <div class="chesticon shake ${t.cls}">${t.icon}</div>
         <div><b>你獲得一個 ${esc(t.name)}</b>
-          <div class="tiny">裡面有金幣、XP，還可能開出道具。</div></div>
+          <div class="tiny">抽 ${t.rolls} 次獎品：金幣、XP、素材、道具，稀有的還有鑰匙、復活石、神秘禮物。</div></div>
       </div>
       <div class="btnrow" style="margin-top:10px">
-        <button class="btn gold big-btn" data-act="openChest">開寶箱</button>
+        <button class="btn gold big-btn" data-act="openChest">🎁 打開寶箱</button>
         ${c.bonusUsed ? '' : '<button class="btn purple" data-act="bonusRound">🎲 加碼題（答對寶箱升級・答錯不倒扣）</button>'}
       </div>
-      <p class="tiny">加碼題只有一題，限時。答對 → 寶箱升一級（木→銀→金）。</p>
+      <p class="tiny">加碼題只有一題，限時。答對 → 寶箱升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>`;
   }
 
-  /** 選一個箱子再開 —— 同樣的獎勵，但「自己選的」比較好玩。 */
+  /** 進全螢幕寶箱前，先把結算畫面存起來，開完箱才能原封不動回去。 */
+  function saveResultScreen() {
+    const wrap = document.querySelector('.wrap');
+    if (wrap) window.__resultHtml = wrap.innerHTML;
+  }
+  function backFromChest() {
+    if (window.__chest && window.__chest.fromKey) return bag();
+    if (window.__resultHtml) {
+      render(window.__resultHtml);
+      const el = document.querySelector('.chestcard');
+      if (el) { el.outerHTML = chestCard(); return; }
+      // 加碼題結算那類畫面沒有寶箱卡，就把「開寶箱」鈕換成已開啟的結果，不留死按鈕
+      const btn = document.querySelector('[data-act="openChest"]');
+      if (btn) {
+        const r = (window.__chest || {}).reward || {};
+        btn.outerHTML = `<span class="loot coin">${S.CHEST[r.tier] ? S.CHEST[r.tier].icon : '📦'} 已開箱　🪙 +${r.coin || 0}　✨ +${r.xp || 0} XP</span>`;
+      }
+      return;
+    }
+    const c = window.__lastMap;
+    return c ? letterSetup(c.lv, c.letter) : home();
+  }
+
+  /** 全螢幕選箱：三個箱子擺滿整個畫面，自己挑一個。 */
   function openChestFlow() {
     const c = window.__chest;
     if (!c || c.opened) return;
-    overlay(`<h2 style="text-align:center">選一個箱子</h2>
-      <p class="muted" style="text-align:center">三個都是 ${esc(S.CHEST[c.tier].name)}，挑一個順眼的。</p>
-      <div class="chestpick">${[0, 1, 2].map(k =>
-      `<button class="chestbtn" data-close="${k}">${S.CHEST[c.tier].icon}<span class="tiny">箱 ${k + 1}</span></button>`).join('')}</div>`,
-      () => {
-        const r = S.openChest(c.tier);
-        c.opened = true; c.reward = r;
-        sfx.clear();
-        const it = r.item && S.shopItem(r.item);
-        const gifts = S.claimLevelUps();
-        overlay(`<div class="big" style="color:var(--gold)">${S.CHEST[r.tier].icon} ${esc(r.name)}</div>
-          <div class="lootrow">
-            <span class="loot coin">🪙 +${r.coin}</span>
-            <span class="loot xp">✨ +${r.xp} XP</span>
-            ${it ? `<span class="loot item">🧪 ${esc(it.name)} ×1</span>` : '<span class="loot none">這次沒開出道具</span>'}
-          </div>
-          <div class="btnrow" style="justify-content:center;margin-top:12px">
-            <button class="btn primary" data-close="ok">收下</button>
-          </div>`, () => { redrawAfterChest(); showLevelUps(gifts); });
-      });
+    saveResultScreen();
+    const t = S.CHEST[c.tier];
+    render(`<div class="chestscene ${t.cls}">
+      <div class="csglow"></div>
+      <div class="cshead">
+        <div class="cstier">${t.icon} ${esc(t.name)}</div>
+        <h2>選一個箱子打開</h2>
+        <p class="muted">三個都是同一級的寶箱，抽 ${t.rolls} 次獎品。挑一個順眼的。</p>
+      </div>
+      <div class="chestpick big">${[0, 1, 2].map(k =>
+      `<button class="chestbtn ${t.cls}" data-openchest="${k}">
+          <span class="cbicon">${t.icon}</span><span class="cbnum">箱 ${k + 1}</span></button>`).join('')}</div>
+      <p class="tiny" style="text-align:center;margin-top:18px">稀有獎品：💎 金鑽石、🔑 寶箱鑰匙、復活石、三倍 XP 卡、🪙 金幣大獎、🎀 神秘禮物（機率很低）</p>
+    </div>`);
   }
-  /** 開完箱回到結算畫面（保留原本的逐題檢討）。 */
-  function redrawAfterChest() {
-    const c = window.__lastMap;
-    if (!c) return home();
-    const el = document.querySelector('.chestcard');
-    if (el) el.outerHTML = chestCard();
-    else letterSetup(c.lv, c.letter);
+
+  /** 全螢幕開箱演出：箱子放大 → 一項一項亮出獎品。 */
+  function revealChest(pick) {
+    const c = window.__chest;
+    if (!c || c.opened) return;
+    const r = S.openChest(c.tier);
+    c.opened = true; c.reward = r; c.tier = r.tier;
+    const t = S.CHEST[r.tier];
+    sfx.clear();
+    if (r.special) setTimeout(() => sfx.lvl(), 350);
+    const gifts = S.claimLevelUps();
+    render(`<div class="chestscene open ${t.cls}">
+      <div class="csglow big"></div>
+      <div class="cshead">
+        <div class="chesticon huge pop ${t.cls}">${t.icon}</div>
+        <div class="big" style="margin-top:4px">${esc(r.name)}</div>
+        ${r.upgraded ? '<p class="tiny" style="color:var(--purple)">🦄 獨角獸讓這個箱子升了一級！</p>' : ''}
+        ${r.special ? '<p class="tiny" style="color:var(--gold)">✨ 開出稀有獎品！</p>' : ''}
+      </div>
+      <div class="lootbig">
+        <div class="loot coin big">🪙 +${r.coin}</div>
+        <div class="loot xp big">✨ +${r.xp} XP</div>
+        ${(r.drops || []).map((d, k) => `<div class="loot ${d.special ? 'rare' : 'item'} big" style="animation-delay:${0.12 * (k + 1)}s">${esc(d.label)}</div>`).join('')}
+      </div>
+      <div class="btnrow" style="justify-content:center;margin-top:22px">
+        <button class="btn primary big-btn" data-act="chestDone">收下獎品</button>
+      </div>
+      <p class="tiny" style="text-align:center;margin-top:10px">素材放進背包（合成台可以換道具），金幣與 XP 已入帳。</p>
+    </div>`);
+    window.__chestGifts = gifts;
   }
 
   /** 加碼題：從這一關的字裡抽一題，答對把寶箱升級。答錯只是沒升級，不倒扣。 */
@@ -1040,7 +1082,8 @@
     const won = run.right > 0;
     closeRun({ passed: won, xp: run.pendingXp });
     S.addXp(run.pendingXp);
-    if (won && c) c.tier = S.upgradeChest(c.tier);
+    // 加碼題是唯一能把金寶箱推上彩虹的途徑
+    if (won && c) c.tier = S.upgradeChest(c.tier, true);
     const gifts = S.claimLevelUps();
     won ? sfx.clear() : sfx.no();
     render(`<div class="card sheet" style="text-align:center">
@@ -2012,7 +2055,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         <tr><th>日期時間</th><th>寶箱</th><th>開出的東西</th></tr>
         ${rows || '<tr><td colspan="3" class="muted">還沒開過寶箱。通關就有。</td></tr>'}
       </table></div>
-      <p class="tiny">寶箱等級：三星且沒重來 → 💎 金；二星以上或本關連擊 ≥10 → 🎁 銀；其他 → 📦 木。加碼題答對可以升一級。</p>
+      <h3 style="margin-top:14px">怎麼拿到大寶箱</h3>
+      <div class="tblwrap"><table class="rep">
+        <tr><th>寶箱</th><th>條件</th><th>抽獎</th></tr>
+        ${S.CHEST_RULES.map(r => `<tr><td class="w">${S.CHEST[r.tier].icon} ${esc(S.CHEST[r.tier].name)}</td>
+          <td>${esc(r.text)}</td><td>${S.CHEST[r.tier].rolls} 次</td></tr>`).join('')}
+      </table></div>
+      <p class="tiny">稀有獎品（🔑 鑰匙、復活石、三倍 XP 卡、🪙 金幣大獎、🎀 神秘禮物）機率很低，箱子等級越高才越有機會。
+        加碼題答對可以升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>
     <div class="card">
       <h3>素材掉落紀錄</h3>
@@ -2259,6 +2309,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       toast(`目標：${scope === 'all' ? '全書' : '第 ' + scope + ' 級'} ${total} 字，${g.until} 前 → 每天 ${st.perDay} 字`);
       return home();
     }
+    const oc = t.closest('[data-openchest]');
+    if (oc) return revealChest(+oc.dataset.openchest);
     const swl = t.closest('[data-swlv]');
     if (swl) {
       const l = +swl.dataset.swlv;
@@ -2387,23 +2439,20 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
     if (a === 'useKey') {
-      const r = S.useKey();
-      if (!r) return toast('沒有鑰匙');
-      sfx.clear();
-      const it = r.item && S.shopItem(r.item);
-      const gifts = S.claimLevelUps();
-      overlay(`<div class="big" style="color:var(--gold)">🔑 ${S.CHEST[r.tier].icon} ${esc(r.name)}</div>
-        <div class="lootrow">
-          <span class="loot coin">🪙 +${r.coin}</span>
-          <span class="loot xp">✨ +${r.xp} XP</span>
-          ${it ? `<span class="loot item">🧪 ${esc(it.name)} ×1</span>` : '<span class="loot none">這次沒開出道具</span>'}
-        </div>
-        <div class="btnrow" style="justify-content:center;margin-top:12px">
-          <button class="btn primary" data-close="ok">收下</button>
-        </div>`, () => { bag(); showLevelUps(gifts); });
-      return;
+      if (S.matCount('key') < 1) return toast('沒有鑰匙');
+      // 鑰匙箱走同一套全螢幕演出，收下後回背包
+      window.__chest = { tier: 'silver', opened: false, bonusUsed: true, fromKey: true };
+      window.__resultHtml = null;
+      S.addMat('key', -1);
+      return openChestFlow();
     }
     if (a === 'openChest') return openChestFlow();
+    if (a === 'chestDone') {
+      const g = window.__chestGifts || [];
+      window.__chestGifts = null;
+      backFromChest();
+      return showLevelUps(g);
+    }
     if (a === 'bonusRound') return bonusRound();
     if (a === 'dlCsv') return dlCsv();
     if (a === 'startWrong') {

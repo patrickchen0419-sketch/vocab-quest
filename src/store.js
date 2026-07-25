@@ -974,46 +974,124 @@
   /* 通關給寶箱、加碼題答對可以把寶箱升級。寶箱只會給「金幣／XP／道具」，
      不會給答案或跳題 —— 獎勵不能污染作答紀錄。 */
   const CHEST = {
-    wood: { id: 'wood', name: '木寶箱', icon: '📦', coin: [8, 16], xp: [20, 40], itemChance: 0.25 },
-    silver: { id: 'silver', name: '銀寶箱', icon: '🎁', coin: [18, 32], xp: [45, 85], itemChance: 0.55 },
-    gold: { id: 'gold', name: '金寶箱', icon: '💎', coin: [35, 60], xp: [90, 150], itemChance: 0.9 },
+    wood: { id: 'wood', name: '木寶箱', icon: '📦', coin: [8, 18], xp: [20, 45], rolls: 1, cls: 'c-wood' },
+    silver: { id: 'silver', name: '銀寶箱', icon: '🎁', coin: [22, 40], xp: [55, 100], rolls: 2, cls: 'c-silver' },
+    gold: { id: 'gold', name: '金寶箱', icon: '💎', coin: [50, 85], xp: [120, 200], rolls: 3, cls: 'c-gold' },
+    rainbow: { id: 'rainbow', name: '彩虹寶箱', icon: '🌈', coin: [130, 240], xp: [320, 520], rolls: 4, cls: 'c-rainbow' },
   };
-  const CHEST_ORDER = ['wood', 'silver', 'gold'];
-  const CHEST_ITEMS = ['heart', 'hourglass', 'fifty', 'xp2', 'shield'];
+  const CHEST_ORDER = ['wood', 'silver', 'gold', 'rainbow'];
 
-  /** 這一關該給哪一級寶箱：全對不重來給金，表現不錯給銀，其餘木。 */
+  /* 開箱內容用加權抽獎表，每一級寶箱抽的次數與權重都不同。
+     special: true 的是「驚喜」獎品（鑰匙、復活石、三倍卡、金幣大獎、神秘禮物），
+     在木寶箱裡權重極低，只有金／彩虹才有像樣的機率 —— 這樣開到才會有感覺。 */
+  const LOOT = [
+    { id: 'm_blue', kind: 'mat', mat: 'gem_blue', n: [1, 2], w: { wood: 30, silver: 18, gold: 8, rainbow: 4 } },
+    { id: 'm_green', kind: 'mat', mat: 'gem_green', n: [1, 2], w: { wood: 16, silver: 22, gold: 12, rainbow: 5 } },
+    { id: 'm_red', kind: 'mat', mat: 'gem_red', n: [1, 2], w: { wood: 5, silver: 15, gold: 20, rainbow: 9 } },
+    { id: 'm_dust', kind: 'mat', mat: 'stardust', n: [1, 3], w: { wood: 9, silver: 14, gold: 16, rainbow: 12 } },
+    { id: 'm_scroll', kind: 'mat', mat: 'scroll', n: [1, 2], w: { wood: 4, silver: 9, gold: 12, rainbow: 12 } },
+    { id: 'm_diamond', kind: 'mat', mat: 'gem_gold', n: [1, 2], w: { wood: 0.8, silver: 3.5, gold: 11, rainbow: 18 }, special: true },
+    { id: 'm_key', kind: 'mat', mat: 'key', n: [1, 1], w: { wood: 0.5, silver: 2, gold: 5, rainbow: 13 }, special: true },
+    { id: 'i_fifty', kind: 'item', item: 'fifty', w: { wood: 14, silver: 9, gold: 5, rainbow: 2 } },
+    { id: 'i_heart', kind: 'item', item: 'heart', w: { wood: 9, silver: 10, gold: 6, rainbow: 2 } },
+    { id: 'i_hour', kind: 'item', item: 'hourglass', w: { wood: 6, silver: 8, gold: 5, rainbow: 2 } },
+    { id: 'i_xp2', kind: 'item', item: 'xp2', w: { wood: 1.2, silver: 5, gold: 9, rainbow: 7 } },
+    { id: 'i_bigheart', kind: 'item', item: 'bigheart', w: { wood: 0.6, silver: 3, gold: 7, rainbow: 7 } },
+    { id: 'i_hour2', kind: 'item', item: 'hourglass2', w: { wood: 0.4, silver: 2, gold: 5, rainbow: 6 } },
+    { id: 'i_xp3', kind: 'item', item: 'xp3', w: { wood: 0.15, silver: 0.9, gold: 4, rainbow: 10 }, special: true },
+    { id: 'i_revive', kind: 'item', item: 'revive', w: { wood: 0.1, silver: 0.7, gold: 3.5, rainbow: 9 }, special: true },
+    { id: 'i_shield', kind: 'item', item: 'shield', w: { wood: 0.4, silver: 1.5, gold: 4, rainbow: 6 } },
+    { id: 'jackpot', kind: 'coin', n: [150, 400], w: { wood: 0.25, silver: 1, gold: 3, rainbow: 9 }, special: true },
+    { id: 'megaxp', kind: 'xp', n: [200, 500], w: { wood: 0.25, silver: 1, gold: 3, rainbow: 9 }, special: true },
+    { id: 'mystery', kind: 'gift', w: { wood: 0.04, silver: 0.2, gold: 0.9, rainbow: 5 }, special: true },
+  ];
+  const LOOT_NAME = { jackpot: '金幣大獎', megaxp: 'XP 大獎', mystery: '🎀 神秘禮物' };
+
+  /* 這一關該給哪一級寶箱。刻意收緊：全對還不夠，關卡要有份量、不能重來。
+     彩虹寶箱幾乎是「表演級」條件（20 題以上全對、連擊 20、挑戰難度以上、不重來）。 */
   function chestTier(o) {
     const x = o || {};
-    if ((x.stars || 0) >= 3 && !x.retries) return 'gold';
-    if ((x.stars || 0) >= 2 || (x.combo || 0) >= 10) return 'silver';
+    const stars = x.stars || 0, combo = x.combo || 0, n = x.count || x.answered || 0;
+    const retries = x.retries || 0;
+    const hard = x.diff === 'hard' || x.diff === 'extreme';
+    if (stars >= 3 && !retries && n >= 20 && combo >= 20 && hard) return 'rainbow';
+    if (stars >= 3 && !retries && n >= 10) return 'gold';
+    if (stars >= 3 || (stars >= 2 && !retries) || combo >= 12) return 'silver';
     return 'wood';
   }
-  function upgradeChest(t) {
+  /** 升一級。預設最多升到金 —— 彩虹只能靠真本事（或加碼題答對）拿到。 */
+  function upgradeChest(t, allowRainbow) {
+    const cap = allowRainbow ? CHEST_ORDER.length - 1 : CHEST_ORDER.indexOf('gold');
     const k = CHEST_ORDER.indexOf(t);
-    return CHEST_ORDER[Math.min(CHEST_ORDER.length - 1, (k < 0 ? 0 : k) + 1)];
+    return CHEST_ORDER[Math.min(cap, (k < 0 ? 0 : k) + 1)];
   }
-  /** 開箱：直接入帳並寫進紀錄（時間＋內容）。 */
+
+  /** 抽一個獎品（加權隨機）。回傳的物件已經算好數量與顯示名稱，還沒入帳。 */
+  function rollOne(tier) {
+    const pool = LOOT.filter(x => (x.w[tier] || 0) > 0);
+    let total = 0;
+    pool.forEach(x => { total += x.w[tier]; });
+    let r = Math.random() * total;
+    const hit = pool.find(x => (r -= x.w[tier]) <= 0) || pool[0];
+    const n = hit.n ? hit.n[0] + Math.floor(Math.random() * (hit.n[1] - hit.n[0] + 1)) : 1;
+    return { id: hit.id, kind: hit.kind, mat: hit.mat, item: hit.item, n, special: !!hit.special };
+  }
+  /** 神秘禮物：從還沒擁有的史詩／傳說／究極商品裡隨機給一件；全都有了就換成大量金幣。 */
+  function mysteryGift() {
+    const pool = SHOP.filter(x => ['epic', 'legend', 'ultra'].includes(x.rarity)
+      && x.kind !== 'pack' && x.kind !== 'consumable' && !owned(x.id));
+    if (!pool.length) return { kind: 'coin', id: 'jackpot', n: 500 + Math.floor(Math.random() * 500), special: true };
+    const it = pool[Math.floor(Math.random() * pool.length)];
+    return { kind: 'gift', id: it.id, item: it.id, n: 1, special: true };
+  }
+
+  /** 開箱：抽獎、入帳、寫紀錄。回傳完整內容給畫面演出。 */
   function openChest(tier) {
-    // 獨角獸：開箱時有機會自動升一級
-    if (petIs('pet_unicorn') && Math.random() < 0.25) tier = upgradeChest(tier || 'wood');
+    // 獨角獸：開箱時有機會自動升一級（最多升到金）
+    let upgraded = false;
+    if (petIs('pet_unicorn') && Math.random() < 0.25) {
+      const up = upgradeChest(tier || 'wood');
+      if (up !== tier) { tier = up; upgraded = true; }
+    }
     const c = CHEST[tier] || CHEST.wood;
     const bo = chestBoost();
-    const pick = (a, b) => Math.round((a + Math.floor(Math.random() * (b - a + 1))) * bo.mult);
-    const coin = pick(c.coin[0], c.coin[1]), xp = pick(c.xp[0], c.xp[1]);
-    let item = null;
-    if (Math.random() < c.itemChance + bo.item) {
-      item = CHEST_ITEMS[Math.floor(Math.random() * CHEST_ITEMS.length)];
-      const inv = inventory();
-      inv[item] = (inv[item] || 0) + 1;
+    const money = (a, b) => Math.round((a + Math.floor(Math.random() * (b - a + 1))) * bo.mult);
+    let coin = money(c.coin[0], c.coin[1]), xp = money(c.xp[0], c.xp[1]);
+
+    // 抽獎：幸運符讓抽獎次數有機會 +1
+    const rolls = c.rolls + (Math.random() < bo.item ? 1 : 0);
+    const drops = [];
+    const inv = inventory();
+    for (let k = 0; k < rolls; k++) {
+      let d = rollOne(c.id);
+      if (d.kind === 'gift') d = mysteryGift();
+      if (d.kind === 'mat') { addMat(d.mat, d.n); d.label = `${MATERIALS[d.mat].icon} ${MATERIALS[d.mat].name} ×${d.n}`; }
+      else if (d.kind === 'item') { inv[d.item] = (inv[d.item] || 0) + 1; d.label = `🧪 ${(shopItem(d.item) || {}).name}`; }
+      else if (d.kind === 'gift') { inv[d.item] = (inv[d.item] || 0) + 1; d.label = `🎀 神秘禮物：${(shopItem(d.item) || {}).name}`; }
+      else if (d.kind === 'coin') { coin += d.n; d.label = `🪙 金幣大獎 +${d.n}`; }
+      else if (d.kind === 'xp') { xp += d.n; d.label = `✨ XP 大獎 +${d.n}`; }
+      drops.push(d);
     }
     addXp(xp); addCoins(coin);
-    const row = { tier: c.id, name: c.name, icon: c.icon, coin, xp, item, at: new Date().toISOString() };
-    const d = day();
-    d.chests = d.chests || [];
-    d.chests.push(row);
+    const row = {
+      tier: c.id, name: c.name, icon: c.icon, coin, xp,
+      drops, special: drops.some(d => d.special), upgraded,
+      item: (drops.find(d => d.kind === 'item' || d.kind === 'gift') || {}).item || null,   // 舊紀錄格式相容
+      at: new Date().toISOString(),
+    };
+    const d2 = day();
+    d2.chests = d2.chests || [];
+    d2.chests.push(row);
     save(true);
     return row;
   }
+  /** 寶箱條件說明（畫面上要讓人看得懂怎麼拿到大箱子）。 */
+  const CHEST_RULES = [
+    { tier: 'rainbow', text: '20 題以上全對、連擊 ≥20、挑戰難度以上、沒重來' },
+    { tier: 'gold', text: '10 題以上全對且沒重來' },
+    { tier: 'silver', text: '全對（小關）／二星沒重來／本關連擊 ≥12' },
+    { tier: 'wood', text: '通關' },
+  ];
   function chestLog(dstr) {
     const s = load();
     if (dstr === 'all') {
@@ -1520,7 +1598,7 @@
     LETTERS, PASS_ACC, bucket, mapStat, levelStat, nextStage, recordStage,
     winStreak, bestWinStreak, winStreakBonus,
     SHOP, shopItem, coins, addCoins, inventory, owned, buy, consume, equip, equipped, stageCoins,
-    CHEST, CHEST_ORDER, chestTier, upgradeChest, openChest, chestLog,
+    CHEST, CHEST_ORDER, CHEST_RULES, LOOT, chestTier, upgradeChest, openChest, chestLog, rollOne,
     MATERIALS, MAT_ORDER, material, mats, matCount, addMat, useMats,
     matDrop, grantMats, dropLog, gemsToday, RECIPES, canCraft, craft, useKey,
     dealsToday, dealFor, priceOf,
