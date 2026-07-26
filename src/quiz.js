@@ -431,27 +431,48 @@
     return shuffle(out);
   }
 
-  /** 有例句的字（依關卡遠近排序：這一關的字 → 同一級 → 其他）。 */
-  function sentPool(preferIds, lv) {
+  /* 有例句的字只有 150 個，字首分佈很不平均（H/J/K/Q/U/Y/Z 是 0）。
+     所以「這一關的字剛好都沒例句」是常態，必須有 fallback。
+     排序：0 = 這一關抽到的字、1 = 同一個字首（跨級也行，還是同一個字母關的感覺）、
+           2 = 同一級的其他字首、3 = 其他。
+     rank ≥ 2 的會被標成「延伸句型」，而且一關最多只放一題 —— 不然 D 關會冒出一堆 E、M。 */
+  function sentRank(w, prefer, lv, letter) {
+    if (prefer.has(w.i)) return 0;
+    if (letter && w.w[0].toUpperCase() === String(letter).toUpperCase()) return 1;
+    if (lv && w.lv === lv) return 2;
+    return 3;
+  }
+  function sentPool(preferIds, lv, letter) {
     const SEN = window.SENTENCES || {}, byW = new Map(V().map(w => [w.w, w]));
     const pool = Object.keys(SEN).map(k => byW.get(k)).filter(Boolean);
     const prefer = new Set(preferIds || []);
-    const rank = w => (prefer.has(w.i) ? 0 : (lv && w.lv === lv) ? 1 : 2);
-    return shuffle(pool).sort((a, b) => rank(a) - rank(b));
+    return shuffle(pool)
+      .map(w => [w, sentRank(w, prefer, lv, letter)])
+      .sort((a, b) => a[1] - b[1])
+      .map(e => e[0]);
   }
 
-  /** 只抽 n 題句子運用題（不塞自由造句）。優先用這一關的字，再退到同一級。 */
-  function applyPick(n, preferIds, lv) {
+  /** 只抽句子運用題（不塞自由造句）。maxOutside：最多幾題可以不屬於這一關（預設 1）。 */
+  function applyPick(n, preferIds, lv, letter, maxOutside) {
     if (n <= 0) return [];
-    const ordered = sentPool(preferIds, lv);
+    const SEN = window.SENTENCES || {}, prefer = new Set(preferIds || []);
+    const cap = maxOutside == null ? 1 : maxOutside;
+    const ordered = sentPool(preferIds, lv, letter);
     const gens = ['cloze', 'trans', 'order'].filter(kindOn);
     if (!gens.length) return [];
     const out = [];
+    let outside = 0;
     for (const w of ordered) {
       if (out.length >= n) break;
+      const rank = sentRank(w, prefer, lv, letter);
+      if (rank >= 2) {
+        if (outside >= cap) continue;                // 延伸題有上限，寧可少出也不亂跑字母
+      }
       const k = gens[out.length % gens.length];
       const q = APPLY_GEN[k](w) || q_cloze(w) || q_trans(w) || q_order(w);
-      if (q) out.push(q);
+      if (!q) continue;
+      if (rank >= 2) { q.outside = true; outside++; }
+      out.push(q);
     }
     return out;
   }
@@ -534,21 +555,35 @@
     const wordN = Math.max(1, n - gramSlots - applySlots);
     const weak = [], strong = [];
     ids.forEach(i => ((st.words[i] && st.words[i].b >= 3) ? strong : weak).push(i));
-    const pick_ = byErrWeight(weak).concat(byErrWeight(strong)).slice(0, wordN);
+    const ordered = byErrWeight(weak).concat(byErrWeight(strong));
+    const pick_ = ordered.slice(0, wordN);
     const base = pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
 
     const extras = [];
     if (applySlots > 0) {
       // 名額 ≥2 時，一半機率把其中一題換成自由造句（我要批改的材料）
       const freeOne = applySlots >= 2 && kindOn('free') && Math.random() < 0.5;
-      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_, lv));
+      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_, lv, letter, 1));
       if (freeOne) {
-        // 自由造句也優先用這一關的字
-        const fw = shuffle(pick_.map(i => V()[i]).filter(hasSent))[0] || sentPool(pick_, lv)[0];
-        if (fw) extras.push(q_free(fw));
+        /* 自由造句只用「這一關的字」或「同字首的字」——
+           絕不為了硬塞一題造句而把別的字母拉進來（那就是 D 關冒出 E、M 的原因）。
+           兩者都沒有就不出自由造句，名額改考本關的單字。 */
+        const prefer = new Set(pick_);
+        const fw = sentPool(pick_, lv, letter).find(w => sentRank(w, prefer, lv, letter) <= 1);
+        const fq = fw ? q_free(fw) : null;
+        if (fq) extras.push(fq);
       }
     }
     if (gramSlots > 0) extras.push(...grammarForStage(gramSlots, pick_, lv));
+    // 句子名額沒填滿（這一關與同字首都沒例句可用）→ 補這一關自己的單字題，
+    // 寧可多考本關的字，也不要拉一堆別的字母進來。
+    const need = n - base.length - extras.length;
+    if (need > 0) {
+      ordered.slice(wordN, wordN + need).forEach(i => {
+        const q = forWord(V()[i], null, shift);
+        if (q) base.push(q);
+      });
+    }
     return spread(base, extras);
   }
 

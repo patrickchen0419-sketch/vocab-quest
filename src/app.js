@@ -458,6 +458,10 @@
 
     const speakBtn = p.speak ? `<button class="speak" data-say="${esc(p.speak)}" title="播放發音">🔊</button>` : '';
     const redoTag = q.redo ? '<div class="redotag">🔁 剛才錯過的字，再練一次</div>' : '';
+    // 句子題如果不是這一關的字（本關的字沒有例句），要標清楚，不然會像「D 關怎麼跑出 E 開頭」
+    const outTag = q.outside && q.i != null
+      ? `<div class="outtag">📎 延伸句型練習 ・ <b>${esc(V()[q.i].w)}</b>（第 ${V()[q.i].lv} 級 ・ ${esc(V()[q.i].w[0].toUpperCase())} 開頭）不屬於這一關</div>`
+      : '';
     const lvTag = p.lv ? `<div class="qtag">${p.tag ? esc(p.tag) + ' ・ ' : ''}第 ${p.lv} 級 ${p.pos ? '・ ' + esc(p.pos) : ''}</div>` : '';
 
     if (p.type === 'word') {
@@ -528,7 +532,7 @@
         ${useTimer ? '<span class="timer" id="timer"></span>' : ''}
         ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty}</button>` : ''}
       </div>
-      <div class="card qcard ${q.redo ? 'redo' : ''}" id="qcard">${redoTag}${body}${optsHtml}${submitHtml}</div>
+      <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${submitHtml}</div>
       <div id="fb"></div>
       ${run.attempt > 1 ? `<p class="tiny">第 ${run.attempt} 次挑戰這一關（前面的作答紀錄都有保留，正確率只採計第 1 次）</p>` : ''}
     `);
@@ -1528,6 +1532,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <h3 style="margin-top:14px">這一次要練幾個字？</h3>
       <div class="btnrow">${btns}</div>
       ${bar('這一關的單字進度', st.known, st.total, `${st.known}/${st.total} 字`, 'g-lv' + lv)}
+      ${(() => {
+        const own = ids.filter(i => Q.hasSent(V()[i])).length;
+        const c = S.settings;
+        const slots = Math.min(c.applyPerStage, Math.floor((S.settings.stageQuestions || 10) / 4));
+        if (!slots) return '';
+        return `<p class="tiny">句子運用題會優先用這一關的字（這裡有 <b>${own}</b> 個字有例句）。
+          不夠時最多補一題其他字的「延伸句型」，題面上會標出來，其餘名額改考本關的字。</p>`;
+      })()}
       <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.PASS_ACC * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
       ${st.cleared ? `<p class="tiny" style="color:var(--ac)">這一關已通過 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}　挑戰過 ${st.tries} 次</p>`
       : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}

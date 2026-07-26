@@ -251,6 +251,37 @@ t('每一關都固定有句子運用題與文法題', () => {
   assert(withGram >= 18, `文法題名額沒生效：${withGram}/20`);
 });
 
+t('一關最多只有一題「不是這個字母」的句子題，而且會被標記', () => {
+  const SEN = window.SENTENCES || {};
+  // D 開頭只有 7 個字有例句，所以 D 關很容易需要 fallback —— 正好拿來驗上限
+  for (let k = 0; k < 40; k++) {
+    const qs = Q.stageSet(3, 'D', 12, 0);
+    assert(qs.length === 12, '題數不對：' + qs.length);
+    const wordQs = qs.filter(q => q.i != null);
+    const offLetter = wordQs.filter(q => V[q.i].w[0].toUpperCase() !== 'D');
+    assert(offLetter.length <= 1, `一關出現 ${offLetter.length} 個非 D 開頭的字：` + offLetter.map(q => V[q.i].w));
+    offLetter.forEach(q => assert(q.outside === true, `非本關的字沒被標記：${V[q.i].w}`));
+    // 標記過的一定是句子題（不會是認字題）
+    qs.filter(q => q.outside).forEach(q =>
+      assert(['cloze', 'order', 'trans', 'free'].includes(q.kind), '延伸標記出現在非句子題：' + q.kind));
+  }
+});
+
+t('句子名額補不滿時，改考這一關自己的字（不是硬拉別的字母）', () => {
+  // Z 開頭完全沒有例句，兩個句子名額都會落空
+  const zIds = S.bucket(3, 'Z');
+  if (!zIds.length) return;
+  const qs = Q.stageSet(3, 'Z', 12, 0);
+  // Z 開頭字很少，湊不到 12 題是正常的（不能無中生有 Z 的字），但不能亂拉別的字母來湊
+  assert(qs.length <= 12 && qs.length >= 1, '題數不合理：' + qs.length);
+  const off = qs.filter(q => q.i != null && V[q.i].w[0].toUpperCase() !== 'Z');
+  assert(off.length <= 1, `Z 關混進 ${off.length} 個別的字母：` + off.map(q => V[q.i].w));
+  off.forEach(q => assert(q.outside === true, '沒標記為延伸：' + V[q.i].w));
+  // 這一關自己的字全部都要用到（4 個字就出 4 題，不要只出 2 題）
+  const own = new Set(qs.filter(q => q.i != null && V[q.i].w[0].toUpperCase() === 'Z').map(q => q.i));
+  assert(own.size === Math.min(zIds.length, 9), `本關的字沒用滿：${own.size}/${Math.min(zIds.length, 9)}`);
+});
+
 t('句子題優先用這一關的字，其次同一級', () => {
   const SEN = window.SENTENCES || {};
   const byW = new Map(V.map(w => [w.w, w]));
