@@ -937,7 +937,13 @@
       stars, combo: run.bestCombo, retries: run.retries,
       count: graded.length, diff: S.diff().id,
     }) : null;
-    window.__chest = passed ? { tier, lv, letter, ids: [...new Set(run.answers.map(a => a.q.i).filter(i => i != null))], opened: false, bonusUsed: false } : null;
+    window.__chest = passed ? {
+      tier, lv, letter, count: graded.length,
+      ids: [...new Set(run.answers.map(a => a.q.i).filter(i => i != null))],
+      // 剛剛考過什麼（字 + 題型），加碼題要避開這些組合，不要重複考一樣的東西
+      asked: run.answers.filter(a => a.q.i != null).map(a => ({ i: a.q.i, kind: a.q.kind })),
+      opened: false, bonusUsed: false,
+    } : null;
 
     const head = passed
       ? `<div class="stars" style="font-size:40px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
@@ -1087,23 +1093,46 @@
     const stageN = (c && c.count) || (S.settings.stageQuestions || 10);
     return Math.max(3, Math.min(8, Math.round(stageN / 3)));
   }
-  /** 加碼題：從這一關的字裡抽題。答對越多，寶箱升越多級。答錯不倒扣。 */
+  /* 加碼題不能跟剛剛考完的重複：
+     1. 優先用「這一關（同級同字母）還沒考到的字」——真正的新題。
+     2. 不夠時才回頭用剛考過的字，但強制換一種沒用過的題型，而且一個字只出一次。
+     刻意出難一階的題型（tierShift +1），畢竟是拚寶箱升級。 */
   function bonusRound() {
     const c = window.__chest;
     if (!c || c.bonusUsed) return;
-    const pool = (c.ids || []).filter(i => i != null);
-    if (!pool.length) return toast('這一關沒有可以加碼的字');
+    const used = (c.ids || []).filter(i => i != null);
+    if (!used.length) return toast('這一關沒有可以加碼的字');
     const want = bonusCount(c);
-    const shift = (S.diff().tierShift || 0) + 1;      // 加碼題刻意出難一點的題型
-    const ids = Q.shuffle(pool);
+    const shift = (S.diff().tierShift || 0) + 1;
+    const askedKinds = {};
+    (c.asked || []).forEach(a => { (askedKinds[a.i] = askedKinds[a.i] || []).push(a.kind); });
+
+    // 同級同字母、但這一關沒考到的字
+    const fresh = (c.lv && c.letter ? S.bucket(c.lv, c.letter) : []).filter(i => !used.includes(i));
     const qs = [];
-    for (let k = 0; qs.length < want && k < want * 5; k++) {
-      const q = Q.forWord(V()[ids[k % ids.length]], null, shift);
-      if (q && !q.noGrade) qs.push(q);               // 自由造句沒對錯，不能當加碼題
-    }
+    const pushFor = (i, avoid) => {
+      if (qs.some(q => q.i === i)) return false;     // 一個字最多一題
+      for (let t = 0; t < 12; t++) {
+        const q = Q.forWord(V()[i], null, shift);
+        if (!q || q.noGrade) continue;               // 自由造句沒對錯，不能當加碼題
+        if (avoid && avoid.includes(q.kind)) continue;
+        qs.push(q);
+        return true;
+      }
+      return false;
+    };
+    Q.byErrWeight(fresh).forEach(i => { if (qs.length < want) pushFor(i, null); });
+    // 還不夠 → 用考過的字，但換題型
+    Q.byErrWeight(used).forEach(i => { if (qs.length < want) pushFor(i, askedKinds[i] || []); });
+    // 真的湊不出來（字太少）→ 放寬題型限制，至少要有題目
+    Q.byErrWeight(used).forEach(i => { if (qs.length < want) pushFor(i, null); });
     if (!qs.length) return toast('抽不到加碼題，直接開箱吧');
     c.bonusUsed = true;
-    runStage({ title: `🎲 加碼題（${qs.length} 題）`, questions: qs, hearts: 0, bonus: true });
+    const freshN = qs.filter(q => fresh.includes(q.i)).length;
+    runStage({
+      title: `🎲 加碼題（${qs.length} 題${freshN ? `・${freshN} 題新字` : ''}）`,
+      questions: qs, hearts: 0, bonus: true,
+    });
   }
 
   function finishBonus() {
