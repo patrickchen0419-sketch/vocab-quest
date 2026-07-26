@@ -432,10 +432,10 @@
   }
 
   /* 有例句的字只有 150 個，字首分佈很不平均（H/J/K/Q/U/Y/Z 是 0）。
-     所以「這一關的字剛好都沒例句」是常態，必須有 fallback。
-     排序：0 = 這一關抽到的字、1 = 同一個字首（跨級也行，還是同一個字母關的感覺）、
+     排序：0 = 這一關抽到的字、1 = 同一個字首（跨級也行，還是同一個字母關）、
            2 = 同一級的其他字首、3 = 其他。
-     rank ≥ 2 的會被標成「延伸句型」，而且一關最多只放一題 —— 不然 D 關會冒出一堆 E、M。 */
+     **關卡只用 rank ≤ 1** —— 湊不到就直接不出那題句子題，改考本關的單字。
+     不相關的單字絕對不進這一關（rank ≥2 只有自訂練習之類的地方才可能用到）。 */
   function sentRank(w, prefer, lv, letter) {
     if (prefer.has(w.i)) return 0;
     if (letter && w.w[0].toUpperCase() === String(letter).toUpperCase()) return 1;
@@ -452,11 +452,13 @@
       .map(e => e[0]);
   }
 
-  /** 只抽句子運用題（不塞自由造句）。maxOutside：最多幾題可以不屬於這一關（預設 1）。 */
+  /** 只抽句子運用題（不塞自由造句）。
+      maxOutside：最多幾題可以不屬於這一關，**預設 0** ——
+      寧可少出一題句子，也不要讓不相關的單字混進這一關。 */
   function applyPick(n, preferIds, lv, letter, maxOutside) {
     if (n <= 0) return [];
     const SEN = window.SENTENCES || {}, prefer = new Set(preferIds || []);
-    const cap = maxOutside == null ? 1 : maxOutside;
+    const cap = maxOutside == null ? 0 : maxOutside;
     const ordered = sentPool(preferIds, lv, letter);
     const gens = ['cloze', 'trans', 'order'].filter(kindOn);
     if (!gens.length) return [];
@@ -563,7 +565,8 @@
     if (applySlots > 0) {
       // 名額 ≥2 時，一半機率把其中一題換成自由造句（我要批改的材料）
       const freeOne = applySlots >= 2 && kindOn('free') && Math.random() < 0.5;
-      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_, lv, letter, 1));
+      // maxOutside = 0：句子題只能用這一關的字或同字首的字，湊不到就少出一題
+      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_, lv, letter, 0));
       if (freeOne) {
         /* 自由造句只用「這一關的字」或「同字首的字」——
            絕不為了硬塞一題造句而把別的字母拉進來（那就是 D 關冒出 E、M 的原因）。

@@ -1537,8 +1537,10 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         const c = S.settings;
         const slots = Math.min(c.applyPerStage, Math.floor((S.settings.stageQuestions || 10) / 4));
         if (!slots) return '';
-        return `<p class="tiny">句子運用題會優先用這一關的字（這裡有 <b>${own}</b> 個字有例句）。
-          不夠時最多補一題其他字的「延伸句型」，題面上會標出來，其餘名額改考本關的字。</p>`;
+        return own
+          ? `<p class="tiny">這一關有 <b style="color:var(--ac)">${own}</b> 個字有例句，會出成句子運用題（克漏字／中譯英／重組／造句）。</p>`
+          : `<p class="tiny">這一關的字目前都還沒有例句，所以<b>不會出句子題</b>（絕不拉別的字母的字進來湊），
+             名額改成多考這一關的單字。</p>`;
       })()}
       <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.PASS_ACC * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
       ${st.cleared ? `<p class="tiny" style="color:var(--ac)">這一關已通過 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}　挑戰過 ${st.tries} 次</p>`
