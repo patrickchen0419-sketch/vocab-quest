@@ -555,9 +555,24 @@
     const gramSlots = Math.min(c.gramPerStage == null ? 1 : c.gramPerStage, Math.floor(n / 6));
     const applySlots = Math.min(c.applyPerStage == null ? 2 : c.applyPerStage, Math.floor(n / 4));
     const wordN = Math.max(1, n - gramSlots - applySlots);
-    const weak = [], strong = [];
-    ids.forEach(i => ((st.words[i] && st.words[i].b >= 3) ? strong : weak).push(i));
-    const ordered = byErrWeight(weak).concat(byErrWeight(strong));
+    /* 取字順序（只在這一關的字裡面挑，絕不外借）：
+       1. 還沒學過的字 —— 這才是真正的進度，優先出。
+       2. 但保留最多 ¼ 的名額給「今天到期或曾經答錯」的本關字，
+          否則只要這個字母還有新字，錯過的字就永遠排不到，錯題加權等於失效。
+       3. 剩下的名額才輪到其他學過的字（練熟的排最後）。 */
+    const t = window.Store.todayStr();
+    const unseen = [], dueOrWrong = [], seen = [], mastered = [];
+    ids.forEach(i => {
+      const r = st.words[i];
+      if (!r) return unseen.push(i);
+      if ((r.due && r.due <= t) || r.wr > 0) return dueOrWrong.push(i);
+      (r.b >= 3 ? mastered : seen).push(i);
+    });
+    const dw = byErrWeight(dueOrWrong);
+    const reserve = Math.min(dw.length, Math.floor(wordN / 4));
+    // 完整的優先順序清單：保留名額的錯題 → 沒學過的 → 其餘錯題／到期 → 學過的 → 練熟的
+    const ordered = dw.slice(0, reserve)
+      .concat(unseen, dw.slice(reserve), byErrWeight(seen), byErrWeight(mastered));
     const pick_ = ordered.slice(0, wordN);
     const base = pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
 

@@ -251,6 +251,40 @@ t('每一關都固定有句子運用題與文法題', () => {
   assert(withGram >= 18, `文法題名額沒生效：${withGram}/20`);
 });
 
+t('出題以「沒學過的字」為優先', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = S.bucket(2, 'B');
+  assert(ids.length >= 20, 'B 關字太少，換一個字母測');
+  // 先把前 10 個字設成「已經學過而且練熟」
+  const learned = ids.slice(0, 10);
+  learned.forEach(i => { const r = S.rec(i); r.b = 4; r.due = S.addDays(S.todayStr(), 10); r.wr = 0; });
+  let unseenFirst = 0, tot = 0;
+  for (let k = 0; k < 30; k++) {
+    const qs = Q.stageSet(2, 'B', 8, 0).filter(q => q.i != null);
+    qs.forEach(q => { tot++; if (!S.isSeen(q.i)) unseenFirst++; });
+  }
+  assert(unseenFirst / tot > 0.85, `沒學過的字沒有被優先出：${unseenFirst}/${tot}`);
+  s.words = {};
+});
+
+t('但保留最多 ¼ 名額給「本關到期或答錯過」的字，錯題不會被無限延後', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = S.bucket(2, 'C');
+  const bad = ids.slice(0, 3);
+  bad.forEach(i => { S.answer(i, false, 1); S.answer(i, false, 1); });   // 錯兩次
+  let withBad = 0;
+  for (let k = 0; k < 30; k++) {
+    const qs = Q.stageSet(2, 'C', 12, 0).filter(q => q.i != null);
+    const n = qs.filter(q => bad.includes(q.i)).length;
+    assert(n <= 3, `錯題佔太多名額：${n}`);
+    if (n >= 1) withBad++;
+  }
+  assert(withBad >= 28, `錯過的字幾乎沒被排進來：${withBad}/30`);
+  s.words = {};
+});
+
 t('關卡裡絕對不會出現別的字母的單字（每一級每一個字母都驗）', () => {
   // 硬規則：句子題湊不到本關的字就不出那題，不准把不相關的字拉進來
   for (const lv of [1, 3, 5]) {

@@ -765,7 +765,7 @@ t('加碼題題數跟著關卡規模（3～8 題），全對讓寶箱升兩級',
   assert(has('加碼題答對') && has(`${want}/${want}`), '沒顯示答對題數');
 });
 
-t('加碼題不會重複剛剛考完的題目', () => {
+t('加碼題出的是完全不同的單字（同關範圍內、剛剛沒考過的）', () => {
   // 用一個字多的關卡：先打完一關，再看加碼題抽到什麼
   S.setDifficulty('easy');
   goHome();
@@ -778,19 +778,17 @@ t('加碼題不會重複剛剛考完的題目', () => {
   assert(res.end === 'cleared', '沒通關：' + res.end);
   const c = window.__chest;
   assert(c && c.asked && c.asked.length, '沒記下剛剛考過什麼');
-  const askedPairs = new Set(c.asked.map(a => a.i + ':' + a.kind));
   const stageIds = c.ids.slice();
+  assert(has('剛剛沒考過的字'), '按鈕說明沒寫清楚加碼題的取字範圍');
   click('[data-act="bonusRound"]');
   const bq = window.__run().qs;
+  // 每一題都必須是剛剛「沒考過」的字
+  bq.forEach(q => assert(!stageIds.includes(q.i),
+    `加碼題又考了剛剛考過的字：${V[q.i].w}`));
   // 同一個字在加碼題裡不會出現兩次
   const ids = bq.map(q => q.i);
   assert(new Set(ids).size === ids.length, '加碼題重複同一個字：' + ids);
-  // 完全不能出現「同字 + 同題型」的重複
-  bq.forEach(q => assert(!askedPairs.has(q.i + ':' + q.kind),
-    `加碼題重複了剛考過的題目：${V[q.i].w}（${q.kind}）`));
-  // 這一關字很多（C 關），所以應該抽得到沒考過的新字
-  const freshCount = bq.filter(q => !stageIds.includes(q.i)).length;
-  assert(freshCount >= 1, '同字母還有沒考過的字，卻沒優先出新字');
+  // 仍然只在同一級、同一個字母的範圍內
   assert(bq.every(q => V[q.i].w[0].toUpperCase() === 'C' && V[q.i].lv === 3), '加碼題跑出別的字母或級別');
   walkStage({ correct: true });
 });

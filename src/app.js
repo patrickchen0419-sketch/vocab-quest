@@ -1008,9 +1008,15 @@
       </div>
       <div class="btnrow" style="margin-top:10px">
         <button class="btn gold big-btn" data-act="openChest">🎁 打開寶箱</button>
-        ${c.bonusUsed ? '' : `<button class="btn purple" data-act="bonusRound">🎲 加碼題 ${bonusCount(c)} 題（答錯不倒扣）</button>`}
+        ${(() => {
+        if (c.bonusUsed) return '';
+        const left = bonusPool(c).length;
+        if (!left) return '<span class="tiny">這一關的字都考過了，沒有加碼題可以出。</span>';
+        return `<button class="btn purple" data-act="bonusRound">🎲 加碼題 ${Math.min(bonusCount(c), left)} 題（答錯不倒扣）</button>`;
+      })()}
       </div>
-      <p class="tiny">加碼題題數跟著這一關的規模（一關的 ⅓，3～8 題）。全對升兩級、答對六成以上升一級，金寶箱還能升到 🌈 彩虹。</p>
+      <p class="tiny">加碼題只出<b>這一關範圍內、剛剛沒考過的字</b>（沒學過的優先），題數是這一關的 ⅓（3～8 題）。
+        全對升兩級、答對六成以上升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>`;
   }
 
@@ -1093,44 +1099,37 @@
     const stageN = (c && c.count) || (S.settings.stageQuestions || 10);
     return Math.max(3, Math.min(8, Math.round(stageN / 3)));
   }
-  /* 加碼題不能跟剛剛考完的重複：
-     1. 優先用「這一關（同級同字母）還沒考到的字」——真正的新題。
-     2. 不夠時才回頭用剛考過的字，但強制換一種沒用過的題型，而且一個字只出一次。
-     刻意出難一階的題型（tierShift +1），畢竟是拚寶箱升級。 */
+  /** 這一關（同級同字母）還沒考到的字 —— 加碼題只能用這些。 */
+  function bonusPool(c) {
+    if (!c || !c.lv || !c.letter) return [];
+    const used = new Set((c.ids || []).filter(i => i != null));
+    return S.bucket(c.lv, c.letter).filter(i => !used.has(i));
+  }
+
+  /* 加碼題只出「這一關範圍內、但剛剛沒考過的字」。
+     沒學過的排前面（跟一般出題一致），出題型難一階（拚寶箱升級）。
+     這個字母已經全部考完就不給加碼題 —— 寧可不給，也不重複考一樣的字。 */
   function bonusRound() {
     const c = window.__chest;
     if (!c || c.bonusUsed) return;
-    const used = (c.ids || []).filter(i => i != null);
-    if (!used.length) return toast('這一關沒有可以加碼的字');
-    const want = bonusCount(c);
+    const pool = bonusPool(c);
+    if (!pool.length) return toast('這一關的字都考過了，加碼題沒有新字可出');
+    const want = Math.min(bonusCount(c), pool.length);
     const shift = (S.diff().tierShift || 0) + 1;
-    const askedKinds = {};
-    (c.asked || []).forEach(a => { (askedKinds[a.i] = askedKinds[a.i] || []).push(a.kind); });
-
-    // 同級同字母、但這一關沒考到的字
-    const fresh = (c.lv && c.letter ? S.bucket(c.lv, c.letter) : []).filter(i => !used.includes(i));
+    const fresh = pool.filter(i => !S.isSeen(i));      // 沒學過的優先
+    const rest = Q.byErrWeight(pool.filter(i => S.isSeen(i)));
+    const order = Q.shuffle(fresh).concat(rest);
     const qs = [];
-    const pushFor = (i, avoid) => {
-      if (qs.some(q => q.i === i)) return false;     // 一個字最多一題
-      for (let t = 0; t < 12; t++) {
-        const q = Q.forWord(V()[i], null, shift);
-        if (!q || q.noGrade) continue;               // 自由造句沒對錯，不能當加碼題
-        if (avoid && avoid.includes(q.kind)) continue;
-        qs.push(q);
-        return true;
-      }
-      return false;
-    };
-    Q.byErrWeight(fresh).forEach(i => { if (qs.length < want) pushFor(i, null); });
-    // 還不夠 → 用考過的字，但換題型
-    Q.byErrWeight(used).forEach(i => { if (qs.length < want) pushFor(i, askedKinds[i] || []); });
-    // 真的湊不出來（字太少）→ 放寬題型限制，至少要有題目
-    Q.byErrWeight(used).forEach(i => { if (qs.length < want) pushFor(i, null); });
+    for (const i of order) {
+      if (qs.length >= want) break;
+      if (qs.some(q => q.i === i)) continue;           // 一個字最多一題
+      const q = Q.forWord(V()[i], null, shift);
+      if (q && !q.noGrade) qs.push(q);                 // 自由造句沒對錯，不能當加碼題
+    }
     if (!qs.length) return toast('抽不到加碼題，直接開箱吧');
     c.bonusUsed = true;
-    const freshN = qs.filter(q => fresh.includes(q.i)).length;
     runStage({
-      title: `🎲 加碼題（${qs.length} 題${freshN ? `・${freshN} 題新字` : ''}）`,
+      title: `🎲 加碼題（${qs.length} 題・全部是這一關沒考過的字）`,
       questions: qs, hearts: 0, bonus: true,
     });
   }
