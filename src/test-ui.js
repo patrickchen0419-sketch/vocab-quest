@@ -739,17 +739,26 @@ t('結算畫面看得到寶箱與它的條件', () => {
   assert(doc.querySelector('.chesticon'), '沒有寶箱圖示');
 });
 
-t('加碼題只有一題，答對讓寶箱升級', () => {
+t('加碼題有 5 題，全對讓寶箱升兩級', () => {
   const tierBefore = window.__chest.tier;
   click('[data-act="bonusRound"]');
   assert(has('加碼題'), '沒進加碼題：' + txt().slice(0, 200));
   const rr = window.__run();
-  assert(rr.qs.length === 1, '加碼題不該超過一題');
+  assert(rr.qs.length === 5, '加碼題應該 5 題，實際 ' + rr.qs.length);
   assert(rr.maxHearts === 0, '加碼題不該扣血');
+  assert(rr.qs.every(q => !q.noGrade), '加碼題不該有不判分的題目');
   walkStage({ correct: true });
-  assert(has('加碼成功'), '答對卻沒成功：' + txt().slice(0, 200));
+  assert(has('全部答對'), '全對卻沒顯示：' + txt().slice(0, 250));
   const order = S.CHEST_ORDER;
-  assert(order.indexOf(window.__chest.tier) > order.indexOf(tierBefore) || tierBefore === 'gold', '寶箱沒升級');
+  const up = order.indexOf(window.__chest.tier) - order.indexOf(tierBefore);
+  assert(up === 2 || window.__chest.tier === 'rainbow', `全對應該升兩級：${tierBefore} → ${window.__chest.tier}`);
+  assert(has('加碼題答對') && has('5/5'), '沒顯示答對題數');
+});
+
+t('加碼題結算畫面一定有出路（不會卡死）', () => {
+  assert(doc.querySelector('[data-act="backToMap"]'), '沒有回關卡地圖');
+  assert(doc.querySelector('[data-go="home"]'), '沒有回首頁');
+  assert(doc.querySelector('[data-act="openChest"]'), '沒有開寶箱');
 });
 
 t('開寶箱是全螢幕畫面：先選箱，再一項一項亮出獎品', () => {
@@ -771,6 +780,9 @@ t('開寶箱是全螢幕畫面：先選箱，再一項一項亮出獎品', () =>
   assert(has('檢討'), '收下後沒回到原本的畫面：' + txt().slice(600, 900));
   assert(!doc.querySelector('[data-act="openChest"]'), '開完箱還留著開寶箱按鈕');
   assert(has('已開箱') || doc.querySelector('.chestcard.opened'), '沒顯示已開箱的結果');
+  // 最重要：開完箱之後畫面仍然有出路，不能卡死
+  assert(doc.querySelector('[data-go="home"]') || doc.querySelector('[data-act="backToMap"]'),
+    '開完箱之後沒有任何離開的路（卡死）');
 });
 
 console.log('\n--- 速度分與連擊 ---');

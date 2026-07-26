@@ -1033,7 +1033,10 @@ t('鑰匙可以在背包直接開一個銀寶箱', () => {
   p.materials = { key: 1 }; p.coins = 0;
   const r = S.useKey();
   assert(r && r.tier === 'silver', '鑰匙沒開出銀寶箱：' + JSON.stringify(r));
-  assert(S.matCount('key') === 0, '鑰匙沒消耗');
+  // 銀寶箱本身有機率再開出鑰匙，所以扣款要扣掉這次開出的量再比對
+  const keyBack = (r.drops || []).filter(d => d.mat === 'key').reduce((a, d) => a + d.n, 0);
+  assert(S.matCount('key') === keyBack, `鑰匙沒消耗（剩 ${S.matCount('key')}，這次開出 ${keyBack}）`);
+  p.materials = {};
   assert(S.useKey() === null, '沒鑰匙卻能開箱');
 });
 

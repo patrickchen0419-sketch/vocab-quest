@@ -121,10 +121,23 @@
     </div>`;
   }
 
+  /* 每個畫面至少要有一個出路。曾經因為結算畫面只放一顆「開寶箱」，
+     箱子開完那顆鈕被換掉之後整個畫面沒有任何按鈕 —— 直接卡死。
+     這個保險絲會在偵測到沒有任何可操作元素時補上「回首頁」。 */
+  const WAYS_OUT = '[data-go],[data-act],[data-close],[data-openchest],[data-maplv],[data-mapletter],[data-startstage],[data-craft],[data-buy],[data-equip],[data-opt],[data-tile],[data-swpick],[data-swopt],[data-goalpreset],input,textarea';
   function render(html, isHome) {
     atHome = !!isHome;
     if (isHome) backStack = [];
     document.body.innerHTML = topbar() + `<div class="wrap">${html}</div>`;
+    if (!isHome) ensureWayOut();
+  }
+  function ensureWayOut() {
+    const wrap = document.querySelector('.wrap');
+    if (!wrap || wrap.querySelector(WAYS_OUT)) return;
+    const box = document.createElement('div');
+    box.className = 'card';
+    box.innerHTML = '<p class="muted">這個畫面沒有其他動作了。</p><div class="btnrow"><button class="btn primary" data-go="home">回首頁</button></div>';
+    wrap.appendChild(box);
   }
 
   // ---------------- 首頁 ----------------
@@ -1065,33 +1078,58 @@
     window.__chestGifts = gifts;
   }
 
-  /** 加碼題：從這一關的字裡抽一題，答對把寶箱升級。答錯只是沒升級，不倒扣。 */
+  const BONUS_N = 5;                   // 加碼題題數
+  /** 加碼題：從這一關的字裡抽 5 題。答對越多，寶箱升越多級。答錯不倒扣。 */
   function bonusRound() {
     const c = window.__chest;
     if (!c || c.bonusUsed) return;
     const pool = (c.ids || []).filter(i => i != null);
     if (!pool.length) return toast('這一關沒有可以加碼的字');
-    const qs = Q.reviewSet(Q.shuffle(pool).slice(0, 1), (S.diff().tierShift || 0) + 1).slice(0, 1);
+    const shift = (S.diff().tierShift || 0) + 1;      // 加碼題刻意出難一點的題型
+    const ids = Q.shuffle(pool);
+    const qs = [];
+    for (let k = 0; qs.length < BONUS_N && k < BONUS_N * 4; k++) {
+      const q = Q.forWord(V()[ids[k % ids.length]], null, shift);
+      if (q && !q.noGrade) qs.push(q);               // 自由造句沒對錯，不能當加碼題
+    }
     if (!qs.length) return toast('抽不到加碼題，直接開箱吧');
     c.bonusUsed = true;
-    runStage({ title: '🎲 加碼題', questions: qs, hearts: 0, bonus: true });
+    runStage({ title: `🎲 加碼題（${qs.length} 題）`, questions: qs, hearts: 0, bonus: true });
   }
 
   function finishBonus() {
     const c = window.__chest;
-    const won = run.right > 0;
-    closeRun({ passed: won, xp: run.pendingXp });
-    S.addXp(run.pendingXp);
-    // 加碼題是唯一能把金寶箱推上彩虹的途徑
-    if (won && c) c.tier = S.upgradeChest(c.tier, true);
+    const graded = run.answers.filter(a => a.ok !== null);
+    const right = run.right, total = graded.length;
+    // 全對升兩級（金 → 彩虹）、過半升一級、其餘不升但不倒扣
+    const ups = total && right === total ? 2 : right >= Math.ceil(total * 0.6) ? 1 : 0;
+    let tier = c ? c.tier : null;
+    for (let k = 0; k < ups && c; k++) tier = S.upgradeChest(tier, true);
+    if (c) c.tier = tier;
+    const bonusXp = run.pendingXp + (ups === 2 ? 60 : ups === 1 ? 25 : 0);
+    closeRun({ passed: ups > 0, xp: bonusXp });
+    S.addXp(bonusXp);
     const gifts = S.claimLevelUps();
-    won ? sfx.clear() : sfx.no();
+    ups ? sfx.clear() : sfx.no();
+    const nx = window.__nextStage, lm = window.__lastMap;
     render(`<div class="card sheet" style="text-align:center">
-      <div class="big" style="color:${won ? 'var(--gold)' : 'var(--tx2)'}">${won ? '🎲 加碼成功！' : '🎲 沒中，沒關係'}</div>
-      <p class="muted">${won ? `寶箱升級成 <b>${esc(S.CHEST[c.tier].name)}</b>　+${run.pendingXp} XP`
+      <div class="big" style="color:${ups ? 'var(--gold)' : 'var(--tx2)'}">
+        ${ups === 2 ? '🎲 全部答對！' : ups === 1 ? '🎲 加碼成功！' : '🎲 這次沒中'}</div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="stat ok"><b>${right}/${total}</b><span>加碼題答對</span></div>
+        <div class="stat gold"><b>${ups ? '+' + ups + ' 級' : '—'}</b><span>寶箱升級</span></div>
+        <div class="stat"><b>+${bonusXp}</b><span>XP</span></div>
+      </div>
+      <p class="muted" style="margin-top:10px">${ups
+      ? `寶箱變成 <b>${S.CHEST[c.tier].icon} ${esc(S.CHEST[c.tier].name)}</b>${ups === 2 ? '（全對加兩級）' : ''}`
       : '加碼題答錯不倒扣，原本的寶箱還在。'}</p>
-      <div class="btnrow" style="justify-content:center;margin-top:12px">
-        <button class="btn gold big-btn" data-act="openChest">開寶箱</button>
+      <p class="tiny">全對升兩級 ・ 答對 ${Math.ceil(total * 0.6)} 題以上升一級 ・ 沒到就維持原本的箱子</p>
+      <div class="btnrow" style="justify-content:center;margin-top:14px">
+        ${c && !c.opened ? `<button class="btn gold big-btn" data-act="openChest">🎁 打開${esc(S.CHEST[c.tier].name)}</button>` : ''}
+        ${nx ? `<button class="btn primary" data-act="nextMapStage">下一關 ・ ${nx.lv} 級 ${nx.letter} →</button>` : ''}
+        ${(window.__wrongIds || []).length ? `<button class="btn" data-act="fixWrong">✏ 訂正錯的字</button>` : ''}
+        <button class="btn ghost" data-act="backToMap">回關卡地圖</button>
+        <button class="btn ghost" data-go="home">回首頁</button>
       </div>
     </div>
     <div class="card"><h3>加碼題檢討</h3>${reviewList()}</div>`);
