@@ -251,6 +251,63 @@ t('每一關都固定有句子運用題與文法題', () => {
   assert(withGram >= 18, `文法題名額沒生效：${withGram}/20`);
 });
 
+t('句子題優先用這一關的字，其次同一級', () => {
+  const SEN = window.SENTENCES || {};
+  const byW = new Map(V.map(w => [w.w, w]));
+  // 第 3 級有例句的字最多，挑一個字首確定有例句的關來測
+  const lv = 3;
+  const letters = S.LETTERS.filter(L => S.bucket(lv, L).some(i => SEN[V[i].w]));
+  assert(letters.length > 0, '找不到有例句的關卡');
+  const L = letters[0];
+  const ids = S.bucket(lv, L);
+  let fromStage = 0, sameLv = 0, other = 0;
+  for (let k = 0; k < 40; k++) {
+    const qs = Q.applyPick(2, ids, lv);
+    qs.forEach(q => {
+      if (ids.includes(q.i)) fromStage++;
+      else if (V[q.i].lv === lv) sameLv++;
+      else other++;
+    });
+  }
+  assert(fromStage > 0, '完全沒用到這一關的字');
+  assert(other === 0 || sameLv + fromStage > other,
+    `太常跑去用別級的字：關卡 ${fromStage} / 同級 ${sameLv} / 其他 ${other}`);
+});
+
+t('文法題跟著關卡：優先考這一關字連到的文法點', () => {
+  const SEN = window.SENTENCES || {}, G = window.GRAMMAR;
+  // 找一個「這一級這個字母裡有掛文法點的字」的關
+  let target = null;
+  for (const L of S.LETTERS) {
+    const ids = S.bucket(3, L);
+    const hit = ids.find(i => SEN[V[i].w] && SEN[V[i].w].gp && G[SEN[V[i].w].gp]);
+    if (hit) { target = { L, ids, gp: SEN[V[hit].w].gp, word: V[hit].w }; break; }
+  }
+  assert(target, '找不到有連文法點的關卡');
+  let matched = 0;
+  for (let k = 0; k < 30; k++) {
+    const qs = Q.grammarForStage(1, target.ids, 3);
+    assert(qs.length === 1, '沒生出文法題');
+    const links = target.ids.map(i => (SEN[V[i].w] || {}).gp).filter(x => x && G[x]);
+    if (links.includes(qs[0].gid)) matched++;
+  }
+  assert(matched >= 27, `文法題沒跟著關卡的字走：${matched}/30`);
+  const q = Q.grammarForStage(1, target.ids, 3)[0];
+  assert(q.via && target.ids.some(i => V[i].w === q.via), '沒標出是從哪個字連過來的');
+});
+
+t('關卡沒有連到文法點時，按級別對應文法藍圖的階段', () => {
+  assert(Q.bandForLevel(1)[0] === 'g1', '第 1 級應該對到第一階');
+  assert(Q.bandForLevel(2).includes('g8'), '第 2 級也是第一階');
+  assert(Q.bandForLevel(3)[0] === 'g9', '第 3 級應該對到第二階');
+  assert(Q.bandForLevel(5)[0] === 'g17', '第 5 級應該對到第三階');
+  assert(Q.bandForLevel(6)[0] === 'g25', '第 6 級應該對到第四階');
+  // 目前只寫好第一階，所以高級別會退回「下一個沒精熟的單元」而不是生不出題
+  const qs = Q.grammarForStage(2, [], 6);
+  assert(qs.length === 2, '應該還是要生出 2 題文法題');
+  qs.forEach(q => assert(q.kind === 'gmc' || q.kind === 'gfix', '不是文法題'));
+});
+
 t('句子題與文法題會散在考卷中間，不是全擠在最後', () => {
   const APPLY = ['cloze', 'order', 'trans', 'free', 'gmc', 'gfix'];
   let early = 0;

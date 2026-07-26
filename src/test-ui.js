@@ -203,6 +203,10 @@ function t(name, fn) {
 const assert = (c, m) => { if (!c) throw new Error(m || 'assertion failed'); };
 /** 回首頁：已經在首頁時首頁鈕本來就不存在，所以要容許沒有按鈕。 */
 function goHome() {
+  // 一個測試失敗時常常會把 app 留在「關卡進行中」，之後每次導覽都會被攔成「確認放棄」，
+  // 於是後面幾十個測試全部連坐。先強制解除關卡狀態，讓每個測試彼此獨立。
+  const r = window.__run && window.__run();
+  if (r) { r.inStage = false; r.paused = false; }
   if (has('任務看板')) return;                       // 已經在首頁
   let guard = 0;
   while (doc.querySelector('[data-act="back"]') && guard++ < 6) click('[data-act="back"]');
@@ -334,7 +338,9 @@ t('選好字數後開始；有沒學過的字會先出學習卡', () => {
     let guard = 0;
     while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
   }
-  assert(doc.querySelector('.opt') || doc.querySelector('#ans'), '沒開始出題：' + txt().slice(0, 200));
+  // 題目可能是四選一（.opt）、要打字（#ans）或句子重組（詞塊）—— 三種都算已經開始出題
+  assert(doc.querySelector('.opt') || doc.querySelector('#ans') || doc.querySelector('[data-tile]'),
+    '沒開始出題：' + txt().slice(0, 200));
 });
 
 t('關卡進行中沒有任何返回鈕，只有右上角齒輪', () => {
@@ -739,12 +745,16 @@ t('結算畫面看得到寶箱與它的條件', () => {
   assert(doc.querySelector('.chesticon'), '沒有寶箱圖示');
 });
 
-t('加碼題有 5 題，全對讓寶箱升兩級', () => {
+t('加碼題題數跟著關卡規模（3～8 題），全對讓寶箱升兩級', () => {
   const tierBefore = window.__chest.tier;
+  const stageN = window.__chest.count || S.settings.stageQuestions;
+  const want = Math.max(3, Math.min(8, Math.round(stageN / 3)));
+  assert(has(`加碼題 ${want} 題`), `按鈕沒顯示正確題數（預期 ${want}）：` + txt().slice(0, 400));
   click('[data-act="bonusRound"]');
   assert(has('加碼題'), '沒進加碼題：' + txt().slice(0, 200));
   const rr = window.__run();
-  assert(rr.qs.length === 5, '加碼題應該 5 題，實際 ' + rr.qs.length);
+  assert(rr.qs.length === want, `加碼題應該 ${want} 題（關卡 ${stageN} 題的 ⅓），實際 ${rr.qs.length}`);
+  assert(rr.qs.length >= 3 && rr.qs.length <= 8, '加碼題數應該在 3～8 之間');
   assert(rr.maxHearts === 0, '加碼題不該扣血');
   assert(rr.qs.every(q => !q.noGrade), '加碼題不該有不判分的題目');
   walkStage({ correct: true });
@@ -752,7 +762,7 @@ t('加碼題有 5 題，全對讓寶箱升兩級', () => {
   const order = S.CHEST_ORDER;
   const up = order.indexOf(window.__chest.tier) - order.indexOf(tierBefore);
   assert(up === 2 || window.__chest.tier === 'rainbow', `全對應該升兩級：${tierBefore} → ${window.__chest.tier}`);
-  assert(has('加碼題答對') && has('5/5'), '沒顯示答對題數');
+  assert(has('加碼題答對') && has(`${want}/${want}`), '沒顯示答對題數');
 });
 
 t('加碼題結算畫面一定有出路（不會卡死）', () => {

@@ -431,13 +431,19 @@
     return shuffle(out);
   }
 
-  /** 只抽 n 題句子運用題（不塞自由造句），優先用指定的字。 */
-  function applyPick(n, preferIds) {
-    if (n <= 0) return [];
+  /** 有例句的字（依關卡遠近排序：這一關的字 → 同一級 → 其他）。 */
+  function sentPool(preferIds, lv) {
     const SEN = window.SENTENCES || {}, byW = new Map(V().map(w => [w.w, w]));
     const pool = Object.keys(SEN).map(k => byW.get(k)).filter(Boolean);
     const prefer = new Set(preferIds || []);
-    const ordered = shuffle(pool).sort((a, b) => (prefer.has(b.i) ? 1 : 0) - (prefer.has(a.i) ? 1 : 0));
+    const rank = w => (prefer.has(w.i) ? 0 : (lv && w.lv === lv) ? 1 : 2);
+    return shuffle(pool).sort((a, b) => rank(a) - rank(b));
+  }
+
+  /** 只抽 n 題句子運用題（不塞自由造句）。優先用這一關的字，再退到同一級。 */
+  function applyPick(n, preferIds, lv) {
+    if (n <= 0) return [];
+    const ordered = sentPool(preferIds, lv);
     const gens = ['cloze', 'trans', 'order'].filter(kindOn);
     if (!gens.length) return [];
     const out = [];
@@ -448,6 +454,60 @@
       if (q) out.push(q);
     }
     return out;
+  }
+
+  /* 文法題也要「跟著關卡走」：
+     1. 這一關的字如果有例句、而那個例句掛了文法點（sentences.js 的 gp），就直接考那個文法點
+        —— 學生剛剛才看過那個句子，文法點是活的，不是憑空跳出來的。
+     2. 沒有的話按級別對應文法藍圖的階段（1–2 級 → 第一階，3–4 → 第二階，依此類推），
+        取那一階裡已備好題目的單元。
+     3. 都對不上才退回「下一個還沒精熟的單元」。 */
+  function bandForLevel(lv) {
+    const road = window.GRAMMAR_ROADMAP || [];
+    const stage = lv <= 2 ? 1 : lv <= 4 ? 2 : lv <= 5 ? 3 : 4;
+    const hit = road.find(r => r.stage === stage);
+    return hit ? hit.ids : [];
+  }
+  function grammarForStage(n, ids, lv) {
+    if (n <= 0) return [];
+    const SEN = window.SENTENCES || {}, G = window.GRAMMAR || {};
+    const authored = id => !!G[id];
+    // 1. 這一關的字連到的文法點
+    const linked = [];
+    (ids || []).forEach(i => {
+      const s = SEN[V()[i].w];
+      if (s && s.gp && authored(s.gp) && !linked.includes(s.gp)) linked.push({ id: s.gp, via: V()[i].w });
+    });
+    // 2. 級別對應的藍圖階段
+    const band = bandForLevel(lv).filter(authored).map(id => ({ id, via: null }));
+    const order = shuffle(linked).concat(shuffle(band));
+    const st = window.Store.load(), done = {};
+    for (const d in st.days) (st.days[d].gram || []).forEach(g => {
+      if (g.ok && g.attempt === 1) (done[g.id] = done[g.id] || new Set()).add(g.n);
+    });
+    const out = [];
+    for (const cand of order) {
+      if (out.length >= n) break;
+      const items = G[cand.id].items;
+      const doneSet = done[cand.id] || new Set();
+      const idxs = items.map((_, k) => k).filter(k => !doneSet.has(k));
+      const use = (idxs.length ? shuffle(idxs) : shuffle(items.map((_, k) => k)));
+      for (const k of use) {
+        if (out.length >= n) break;
+        const q = q_grammar(cand.id, k);
+        if (!q) continue;
+        if (out.some(x => x.gid === q.gid && x.gn === q.gn)) continue;
+        if (cand.via) q.via = cand.via;                  // 顯示「這一關的 xxx 就是這個文法點」
+        out.push(q);
+      }
+    }
+    // 3. 退回原本的「下一個沒精熟的單元」
+    if (out.length < n) {
+      grammarSet(n - out.length).questions.forEach(q => {
+        if (q && !out.some(x => x.gid === q.gid && x.gn === q.gn)) out.push(q);
+      });
+    }
+    return out.slice(0, n);
   }
 
   /** 把插入題平均散在整份考卷裡（不要全部擠在最後）。 */
@@ -481,15 +541,14 @@
     if (applySlots > 0) {
       // 名額 ≥2 時，一半機率把其中一題換成自由造句（我要批改的材料）
       const freeOne = applySlots >= 2 && kindOn('free') && Math.random() < 0.5;
-      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_));
+      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_, lv));
       if (freeOne) {
-        const SEN = window.SENTENCES || {}, byW = new Map(V().map(w => [w.w, w]));
-        const fpool = Object.keys(SEN).map(k => byW.get(k)).filter(Boolean);
-        const fw = shuffle(pick_.map(i => V()[i]).filter(hasSent))[0] || shuffle(fpool)[0];
+        // 自由造句也優先用這一關的字
+        const fw = shuffle(pick_.map(i => V()[i]).filter(hasSent))[0] || sentPool(pick_, lv)[0];
         if (fw) extras.push(q_free(fw));
       }
     }
-    if (gramSlots > 0) extras.push(...grammarSet(gramSlots).questions);
+    if (gramSlots > 0) extras.push(...grammarForStage(gramSlots, pick_, lv));
     return spread(base, extras);
   }
 
@@ -517,6 +576,7 @@
     base, expanded, acceptable, distractors, grade, checkFree,
     forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet,
     stageSet, fixSet, wrongSet, byErrWeight, applyPick, hasSent, applyChance,
+    grammarForStage, bandForLevel, sentPool,
     q_free, q_grammar, plainSent, FORM_LABEL, shuffle,
     LIMITS, secsFor,
     gen: RECOG,                       // 單一題型生成器（測試與除錯用）

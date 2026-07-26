@@ -500,10 +500,10 @@
         <textarea class="txt" id="ans" placeholder="例如：I decided to ..."></textarea>
         <p class="tiny">這題不判對錯。寫完之後下載今日紀錄，Claude Code 會逐句批改。</p>`;
     } else if (p.type === 'gmc') {
-      body = `<div class="qtag">文法 ・ ${esc(p.title)}</div>
+      body = `<div class="qtag">文法 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
         <div class="qsent">${esc(p.sentence).replace(/_{2,}/, '<span class="gap">?</span>')}</div>`;
     } else if (p.type === 'gfix') {
-      body = `<div class="qtag">找錯改錯 ・ ${esc(p.title)}</div>
+      body = `<div class="qtag">找錯改錯 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
         <p class="muted">下面這句有一個錯，把<b>整句</b>改對重寫一次</p>
         <div class="qsent" style="color:var(--red)">${esc(p.sentence)}</div>
         <textarea class="txt" id="ans" placeholder="寫出改正後的整句"></textarea>`;
@@ -998,9 +998,9 @@
       </div>
       <div class="btnrow" style="margin-top:10px">
         <button class="btn gold big-btn" data-act="openChest">🎁 打開寶箱</button>
-        ${c.bonusUsed ? '' : '<button class="btn purple" data-act="bonusRound">🎲 加碼題（答對寶箱升級・答錯不倒扣）</button>'}
+        ${c.bonusUsed ? '' : `<button class="btn purple" data-act="bonusRound">🎲 加碼題 ${bonusCount(c)} 題（答錯不倒扣）</button>`}
       </div>
-      <p class="tiny">加碼題只有一題，限時。答對 → 寶箱升一級，金寶箱還能升到 🌈 彩虹。</p>
+      <p class="tiny">加碼題題數跟著這一關的規模（一關的 ⅓，3～8 題）。全對升兩級、答對六成以上升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>`;
   }
 
@@ -1078,17 +1078,22 @@
     window.__chestGifts = gifts;
   }
 
-  const BONUS_N = 5;                   // 加碼題題數
-  /** 加碼題：從這一關的字裡抽 5 題。答對越多，寶箱升越多級。答錯不倒扣。 */
+  /** 加碼題數：跟著這一關的規模走（一關的三分之一，3～8 題），不是固定 5 題。 */
+  function bonusCount(c) {
+    const stageN = (c && c.count) || (S.settings.stageQuestions || 10);
+    return Math.max(3, Math.min(8, Math.round(stageN / 3)));
+  }
+  /** 加碼題：從這一關的字裡抽題。答對越多，寶箱升越多級。答錯不倒扣。 */
   function bonusRound() {
     const c = window.__chest;
     if (!c || c.bonusUsed) return;
     const pool = (c.ids || []).filter(i => i != null);
     if (!pool.length) return toast('這一關沒有可以加碼的字');
+    const want = bonusCount(c);
     const shift = (S.diff().tierShift || 0) + 1;      // 加碼題刻意出難一點的題型
     const ids = Q.shuffle(pool);
     const qs = [];
-    for (let k = 0; qs.length < BONUS_N && k < BONUS_N * 4; k++) {
+    for (let k = 0; qs.length < want && k < want * 5; k++) {
       const q = Q.forWord(V()[ids[k % ids.length]], null, shift);
       if (q && !q.noGrade) qs.push(q);               // 自由造句沒對錯，不能當加碼題
     }
