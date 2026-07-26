@@ -7,7 +7,12 @@
   const MAX_BOX = BOX_DAYS.length - 1;
 
   const SCHEMA = 2;                 // 改動設定結構時 +1，舊存檔會走 migrate()
-  const COUNT_DEFAULTS = { newPerDay: 6, reviewCap: 12, applyPerDay: 3, stageQuestions: 10 };
+  /* stageQuestions：一關幾題。applyPerStage / gramPerStage：一關保留給「句子運用」與「文法」的名額。
+     sentRate：有例句的字出句子題的比重（60 = 預設；調高就更常考句子而不是四選一）。 */
+  const COUNT_DEFAULTS = {
+    newPerDay: 6, reviewCap: 12, applyPerDay: 3, stageQuestions: 10,
+    applyPerStage: 2, gramPerStage: 1, sentRate: 60,
+  };
   /** 使用者可以關掉不想練的題型（至少要留一種）。 */
   const ALL_KINDS = ['e2c', 'c2e', 'listen', 'spell', 'form', 'confuse', 'cloze', 'order', 'trans', 'free', 'gmc', 'gfix'];
   const KIND_NAMES = {

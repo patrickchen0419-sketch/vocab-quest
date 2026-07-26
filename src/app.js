@@ -1213,7 +1213,11 @@
   function startReview() {
     const ids = S.dueList(15).map(x => x.i);
     if (!ids.length) { toast('今天沒有到期的字'); return home(); }
-    runStage({ title: '複習到期單字', questions: Q.reviewSet(ids, S.diff().tierShift), hearts: S.diff().hearts, review: true });
+    const qs = Q.reviewSet(ids, S.diff().tierShift);
+    // 複習關也放一題文法（文法要靠反覆碰到才會變成直覺）
+    const g = (S.settings.gramPerStage || 0) > 0 ? Q.grammarSet(1).questions : [];
+    if (g.length) qs.splice(Math.floor(qs.length / 2), 0, g[0]);
+    runStage({ title: '複習到期單字', questions: qs, hearts: S.diff().hearts, review: true });
   }
 
   // ---------------- 成績單 / 家長回報 ----------------
@@ -2183,8 +2187,19 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       : '還沒啟用（字數與期限都填好就會自動啟用）'}</p>
       <div class="btnrow"><button class="btn sm ghost" data-act="clearGoal" style="color:var(--red)">取消目標</button></div>
 
-      <h3 style="margin-top:18px">每關題數</h3>
+      <h3 style="margin-top:18px">每關題數與題型組成</h3>
       <label class="slider">一個字母關幾題：<b>${c.stageQuestions}</b> 題<input type="range" min="5" max="30" step="1" value="${c.stageQuestions}" data-set="stageQuestions"></label>
+      <label class="slider">其中句子運用題（克漏字／中譯英／重組／自由造句）：<b>${c.applyPerStage}</b> 題
+        <input type="range" min="0" max="6" step="1" value="${c.applyPerStage}" data-set="applyPerStage"></label>
+      <label class="slider">其中文法題：<b>${c.gramPerStage}</b> 題
+        <input type="range" min="0" max="4" step="1" value="${c.gramPerStage}" data-set="gramPerStage"></label>
+      <label class="slider">有例句的字，考句子的比重：<b>${c.sentRate}</b>
+        <input type="range" min="0" max="100" step="10" value="${c.sentRate}" data-set="sentRate"></label>
+      <p class="tiny">目前設定下，一關 ${c.stageQuestions} 題裡固定有
+        <b style="color:var(--ac)">${Math.min(c.applyPerStage, Math.floor(c.stageQuestions / 4))}</b> 題句子運用、
+        <b style="color:var(--gold)">${Math.min(c.gramPerStage, Math.floor(c.stageQuestions / 6))}</b> 題文法；
+        剩下的單字題裡，有例句的字約有 ${Math.round(Q.applyChance(2) * 100)}% 機率也考句子（而不是四選一）。
+        目前有例句的字共 ${Object.keys(window.SENTENCES || {}).length} 個。</p>
       <p class="tiny">新單字會在闖關前自動出現學習卡，不用另外設定數量。</p>
       <h3 style="margin-top:16px">關卡難度</h3>
       <div class="pills">${diffPills()}</div>

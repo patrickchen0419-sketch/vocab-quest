@@ -874,6 +874,44 @@ t('商店賣的東西變多、變貴，且分稀有度', () => {
   assert(has('復活石') && has('主題：星空'), '新商品沒上架');
 });
 
+console.log('\n--- 句子與文法真的會出現 ---');
+t('闖一關會遇到句子運用題與文法題，並計入成績單', () => {
+  const c = S.settings;
+  c.applyPerStage = 3; c.gramPerStage = 2; c.sentRate = 100;
+  const d = S.day();
+  d.log = []; d.gram = []; d.free = [];
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="3"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  // 選最多題數的那一關，名額才放得下
+  const btns = doc.querySelectorAll('[data-startstage]');
+  fire('click', btns[btns.length - 1]);
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const r = window.__run();
+  const kinds = r.qs.map(q => q.kind);
+  assert(kinds.some(k => ['cloze', 'trans', 'order', 'free'].includes(k)), '這一關沒有句子題：' + kinds.join(','));
+  assert(kinds.some(k => k === 'gmc' || k === 'gfix'), '這一關沒有文法題：' + kinds.join(','));
+  const res = walkStage({ correct: true });
+  assert(res.end === 'cleared', '沒走完：' + res.end);
+  const sum = S.summary();
+  assert(sum.applyTotal >= 1, '成績單沒統計到句子運用題：' + JSON.stringify(sum));
+  assert(sum.gramTotal >= 1, '成績單沒統計到文法題');
+  c.applyPerStage = 2; c.gramPerStage = 1; c.sentRate = 60;
+});
+
+t('設定頁可以調句子題與文法題名額，並顯示實際組成', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(has('題型組成'), '沒有題型組成區');
+  assert(doc.querySelector('[data-set="applyPerStage"]'), '沒有句子題名額滑桿');
+  assert(doc.querySelector('[data-set="gramPerStage"]'), '沒有文法題名額滑桿');
+  assert(doc.querySelector('[data-set="sentRate"]'), '沒有句子比重滑桿');
+  assert(has('題句子運用') && has('題文法'), '沒顯示實際組成');
+  assert(has('有例句的字共'), '沒顯示例句覆蓋數');
+});
+
 console.log('\n--- 錯題加強 ---');
 t('答錯的字會在同一關內被插入補考題', () => {
   S.setDifficulty('easy');

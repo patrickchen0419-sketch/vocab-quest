@@ -235,6 +235,78 @@ t('dueList 依逾期天數排序，且不含未到期的字', () => {
   for (let k = 1; k < list.length; k++) assert(list[k - 1].over >= list[k].over, '排序不對');
 });
 
+console.log('\n--- 句子與文法出題率 ---');
+t('每一關都固定有句子運用題與文法題', () => {
+  const c = S.settings;
+  c.applyPerStage = 2; c.gramPerStage = 1; c.sentRate = 60;
+  const APPLY = ['cloze', 'order', 'trans', 'free'];
+  let withApply = 0, withGram = 0;
+  for (let k = 0; k < 20; k++) {
+    const qs = Q.stageSet(3, 'C', 12, 0);
+    assert(qs.length === 12, `題數應該維持 12，實際 ${qs.length}`);
+    if (qs.filter(q => APPLY.includes(q.kind)).length >= 2) withApply++;
+    if (qs.some(q => q.kind === 'gmc' || q.kind === 'gfix')) withGram++;
+  }
+  assert(withApply >= 18, `句子題名額沒生效：${withApply}/20`);
+  assert(withGram >= 18, `文法題名額沒生效：${withGram}/20`);
+});
+
+t('句子題與文法題會散在考卷中間，不是全擠在最後', () => {
+  const APPLY = ['cloze', 'order', 'trans', 'free', 'gmc', 'gfix'];
+  let early = 0;
+  for (let k = 0; k < 20; k++) {
+    const qs = Q.stageSet(4, 'D', 12, 0);
+    const pos = qs.map((q, i) => (APPLY.includes(q.kind) ? i : -1)).filter(i => i >= 0);
+    if (pos.some(i => i < qs.length / 2)) early++;
+  }
+  assert(early >= 15, `插入題太集中在後面：${early}/20`);
+});
+
+t('有例句的字會直接考句子，比重可以調整', () => {
+  const w = V.find(x => x.w === 'issue');
+  assert(Q.hasSent(w), 'issue 應該有例句');
+  const rate = (b) => {
+    let sent = 0;
+    for (let k = 0; k < 400; k++) {
+      const kind = Q.forWord(w, b, 0).kind;
+      if (['cloze', 'order', 'trans'].includes(kind)) sent++;
+    }
+    return sent / 400;
+  };
+  const c = S.settings;
+  c.sentRate = 60;
+  const mid = rate(2);
+  assert(mid > 0.3 && mid < 0.75, `預設比重下的句子題率不合理：${mid}`);
+  c.sentRate = 100;
+  assert(rate(2) > mid, '調高比重應該更常出句子題');
+  c.sentRate = 0;
+  assert(rate(2) === 0, '比重 0 應該完全不出句子題');
+  c.sentRate = 60;
+  // 沒有例句的字只能考認字題
+  const noSent = V.find(x => !Q.hasSent(x) && x.lv === 1);
+  for (let k = 0; k < 50; k++) {
+    assert(!['cloze', 'order', 'trans'].includes(Q.forWord(noSent, 2, 0).kind), '沒例句的字不該出句子題');
+  }
+});
+
+t('熟練度越高越常考「自己組句子」（重組）', () => {
+  const w = V.find(x => x.w === 'issue');
+  const orderRate = b => {
+    let n = 0;
+    for (let k = 0; k < 500; k++) if (Q.forWord(w, b, 0).kind === 'order') n++;
+    return n / 500;
+  };
+  assert(orderRate(5) > orderRate(0), '熟字應該更常考句子重組');
+});
+
+t('名額可以關掉：設成 0 就不出句子題與文法題', () => {
+  const c = S.settings;
+  c.applyPerStage = 0; c.gramPerStage = 0; c.sentRate = 0;
+  const qs = Q.stageSet(3, 'C', 12, 0);
+  assert(qs.every(q => !['cloze', 'order', 'trans', 'free', 'gmc', 'gfix'].includes(q.kind)), '關掉後還是出現句子／文法題');
+  c.applyPerStage = 2; c.gramPerStage = 1; c.sentRate = 60;
+});
+
 console.log('\n--- 錯題加強出題率 ---');
 t('錯過的字權重變高，連續答對會慢慢降回來', () => {
   const a = V.find(w => w.lv === 2 && !S.isSeen(w.i)).i;
@@ -492,10 +564,11 @@ t('每一級 × 每個字母的關卡字數加起來剛好 1002', () => {
   }
 });
 
-t('關卡只出該級、該字母開頭的字', () => {
-  const qs = Q.stageSet(3, 'B', 8, 0);
+t('關卡的單字題只出該級、該字母開頭的字（句子與文法名額不受限）', () => {
+  const RECOG_KINDS = ['e2c', 'c2e', 'listen', 'spell', 'form', 'confuse'];
+  const qs = Q.stageSet(3, 'B', 12, 0);
   assert(qs.length > 0, '生不出題');
-  qs.forEach(q => {
+  qs.filter(q => RECOG_KINDS.includes(q.kind)).forEach(q => {
     const w = V[q.i];
     assert(w.lv === 3, `混到第 ${w.lv} 級的字 ${w.w}`);
     assert(w.w[0].toUpperCase() === 'B', `混到非 B 開頭的字 ${w.w}`);

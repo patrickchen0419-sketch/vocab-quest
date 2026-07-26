@@ -309,10 +309,41 @@
   /** shift：難度偏移（+1 更常考「拼得出來」的題型，-1 更常考「認得出來」）。 */
   const kindOn = k => (window.Store && window.Store.kindOn) ? window.Store.kindOn(k) : true;
 
+  /* 有例句的字才生得出「句子類」題目（克漏字／重組／中譯英）。
+     這是這個專案的重點之一 —— 不只認得字，還要看得懂、寫得出句子。
+     所以只要那個字有例句，就有相當高的機率直接出句子題，而不是四選一。 */
+  const hasSent = w => !!(window.SENTENCES || {})[w.w];
+  const APPLY_GEN = { cloze: q_cloze, trans: q_trans, order: q_order };
+  const APPLY_W = [
+    { cloze: 60, trans: 30, order: 10 },   // box 0：剛學，先讀懂句子
+    { cloze: 40, trans: 35, order: 25 },   // box 1-2
+    { cloze: 25, trans: 30, order: 45 },   // box 3+：要能自己組出句子
+  ];
+  const cfg = () => (window.Store && window.Store.settings) || {};
+  /** 句子題比重（設定頁可調，60 = 預設）。 */
+  const sentRate = () => (cfg().sentRate == null ? 60 : cfg().sentRate);
+  /** 這個熟練度下，有例句的字出「句子題」的機率。 */
+  function applyChance(b) {
+    const base = b <= 0 ? 0.25 : b <= 2 ? 0.5 : 0.7;
+    return Math.max(0, Math.min(0.95, base * (sentRate() / 60)));
+  }
+
+  function tierOf(b, sh) {
+    return Math.max(0, Math.min(WEIGHTS.length - 1, (b <= 0 ? 0 : b <= 2 ? 1 : 2) + (sh || 0)));
+  }
+
   function forWord(w, boxHint, shift) {
     const b = boxHint == null ? ((window.Store.load().words[w.i] || {}).b || 0) : boxHint;
     const sh = shift == null ? (window.Store.diff ? window.Store.diff().tierShift : 0) : shift;
-    const tier = Math.max(0, Math.min(WEIGHTS.length - 1, (b <= 0 ? 0 : b <= 2 ? 1 : 2) + sh));
+    const tier = tierOf(b, sh);
+    // 先賭句子題：這個字有例句就有機會直接考句子
+    if (hasSent(w) && Math.random() < applyChance(b)) {
+      for (const k of weightedOrder(APPLY_W[tier])) {
+        if (!kindOn(k)) continue;
+        const q = APPLY_GEN[k](w);
+        if (q) return q;
+      }
+    }
     for (const k of weightedOrder(WEIGHTS[tier])) {
       if (!kindOn(k)) continue;                    // 使用者關掉的題型不出
       const q = RECOG[k](w);
@@ -400,16 +431,66 @@
     return shuffle(out);
   }
 
-  /** 闖關地圖的一關：從該 (級別, 字首) 的字裡挑 n 個。
+  /** 只抽 n 題句子運用題（不塞自由造句），優先用指定的字。 */
+  function applyPick(n, preferIds) {
+    if (n <= 0) return [];
+    const SEN = window.SENTENCES || {}, byW = new Map(V().map(w => [w.w, w]));
+    const pool = Object.keys(SEN).map(k => byW.get(k)).filter(Boolean);
+    const prefer = new Set(preferIds || []);
+    const ordered = shuffle(pool).sort((a, b) => (prefer.has(b.i) ? 1 : 0) - (prefer.has(a.i) ? 1 : 0));
+    const gens = ['cloze', 'trans', 'order'].filter(kindOn);
+    if (!gens.length) return [];
+    const out = [];
+    for (const w of ordered) {
+      if (out.length >= n) break;
+      const k = gens[out.length % gens.length];
+      const q = APPLY_GEN[k](w) || q_cloze(w) || q_trans(w) || q_order(w);
+      if (q) out.push(q);
+    }
+    return out;
+  }
+
+  /** 把插入題平均散在整份考卷裡（不要全部擠在最後）。 */
+  function spread(base, extras) {
+    if (!extras.length) return base;
+    const out = base.slice();
+    const gap = Math.max(1, Math.floor(out.length / (extras.length + 1)));
+    extras.forEach((q, k) => {
+      const at = Math.min(out.length, gap * (k + 1) + k);
+      out.splice(at, 0, q);
+    });
+    return out;
+  }
+
+  /** 闖關地圖的一關：從該 (級別, 字首) 的字裡挑字，並保留「句子運用」與「文法」的固定名額。
       還沒練熟的優先，其中「錯過的字」再加權 —— 錯題會比沒錯過的字更常被抽到。 */
   function stageSet(lv, letter, n, shift) {
     const ids = window.Store.bucket(lv, letter);
     if (!ids.length) return [];
-    const st = window.Store.load();
+    const st = window.Store.load(), c = cfg();
+    // 名額：句子題與文法題按比例保留，總題數不變
+    const gramSlots = Math.min(c.gramPerStage == null ? 1 : c.gramPerStage, Math.floor(n / 6));
+    const applySlots = Math.min(c.applyPerStage == null ? 2 : c.applyPerStage, Math.floor(n / 4));
+    const wordN = Math.max(1, n - gramSlots - applySlots);
     const weak = [], strong = [];
     ids.forEach(i => ((st.words[i] && st.words[i].b >= 3) ? strong : weak).push(i));
-    const pick_ = byErrWeight(weak).concat(byErrWeight(strong)).slice(0, n);
-    return pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
+    const pick_ = byErrWeight(weak).concat(byErrWeight(strong)).slice(0, wordN);
+    const base = pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
+
+    const extras = [];
+    if (applySlots > 0) {
+      // 名額 ≥2 時，一半機率把其中一題換成自由造句（我要批改的材料）
+      const freeOne = applySlots >= 2 && kindOn('free') && Math.random() < 0.5;
+      extras.push(...applyPick(applySlots - (freeOne ? 1 : 0), pick_));
+      if (freeOne) {
+        const SEN = window.SENTENCES || {}, byW = new Map(V().map(w => [w.w, w]));
+        const fpool = Object.keys(SEN).map(k => byW.get(k)).filter(Boolean);
+        const fw = shuffle(pick_.map(i => V()[i]).filter(hasSent))[0] || shuffle(fpool)[0];
+        if (fw) extras.push(q_free(fw));
+      }
+    }
+    if (gramSlots > 0) extras.push(...grammarSet(gramSlots).questions);
+    return spread(base, extras);
   }
 
   /** 訂正關：只重練剛才答錯的字，不扣血、不計失敗。 */
@@ -435,7 +516,7 @@
   window.Quiz = {
     base, expanded, acceptable, distractors, grade, checkFree,
     forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet,
-    stageSet, fixSet, wrongSet, byErrWeight,
+    stageSet, fixSet, wrongSet, byErrWeight, applyPick, hasSent, applyChance,
     q_free, q_grammar, plainSent, FORM_LABEL, shuffle,
     LIMITS, secsFor,
     gen: RECOG,                       // 單一題型生成器（測試與除錯用）
