@@ -251,6 +251,8 @@ pre.report {
 }
 .pill.on { background: var(--ac); color: #07231b; border-color: transparent; }
 .pill.az { min-width: 40px; padding: 6px 8px; line-height: 1.25; }
+/* 曾經通過但完成度還沒 100%：邊框標出來，跟「已完成」區分 */
+.pill.az.part { border-color: var(--ac); color: var(--ac); background: rgba(52, 211, 166, .1); }
 .pill.az:disabled { cursor: not-allowed; }
 
 label.row { display: flex; align-items: center; gap: 9px; margin: 9px 0; font-size: 14.5px; cursor: pointer; }

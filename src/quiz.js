@@ -438,7 +438,8 @@
      不相關的單字絕對不進這一關（rank ≥2 只有自訂練習之類的地方才可能用到）。 */
   function sentRank(w, prefer, lv, letter) {
     if (prefer.has(w.i)) return 0;
-    if (letter && w.w[0].toUpperCase() === String(letter).toUpperCase()) return 1;
+    // rank 1 必須「同一級 + 同一個字首」——跨級的字對這一關來說也是不相關的字
+    if (letter && lv && w.lv === lv && w.w[0].toUpperCase() === String(letter).toUpperCase()) return 1;
     if (lv && w.lv === lv) return 2;
     return 3;
   }

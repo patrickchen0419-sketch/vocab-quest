@@ -945,9 +945,14 @@
       opened: false, bonusUsed: false,
     } : null;
 
+    // 完成度：這個字母的字要 100% 都學會，才算真正打完、才能前往下一關
+    const after = S.mapStat(lv, letter);
+    window.__letterFull = after.full;
     const head = passed
       ? `<div class="stars" style="font-size:40px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
-         <h2 style="color:var(--ac)">通關！第 ${lv} 級 ・ ${letter} 關</h2>`
+         <h2 style="color:var(--ac)">${after.full ? `完成！第 ${lv} 級 ・ ${letter} 關 100% 打完` : `這一輪通過！第 ${lv} 級 ・ ${letter} 關`}</h2>
+         ${bar(`${letter} 關完成度`, after.known, after.total, `${after.known}/${after.total} 字　${Math.round(after.pct * 100)}%`, after.full ? 'g-gold' : 'g-green')}
+         ${after.full ? '' : `<p class="tiny">還有 <b style="color:var(--gold)">${after.left}</b> 個字沒學會 —— 完成度 100% 才會開放下一關。</p>`}`
       : `<div class="big" style="color:var(--red)">未通關</div>
          <p class="muted">正確率 ${Math.round(acc * 100)}%，沒到 <b>${Math.round(S.PASS_ACC * 100)}%</b> 的通關門檻。這一關的 XP 與金幣都不算，要再挑戰一次。</p>
          ${m.shielded ? '<p style="color:var(--blue)">🛡 連勝護盾擋下了，連勝保住！</p>' : (streakBefore ? '<p class="tiny">連勝歸零。</p>' : '')}`;
@@ -973,7 +978,10 @@
       ${quests.length ? `<div class="badges" style="justify-content:center">${quests.map(q => `<span class="badge got">✅ ${esc(q.name)} +${q.xp}XP +${q.coin}🪙</span>`).join('')}</div>` : ''}
       ${got.length ? `<div class="badges" style="justify-content:center">${got.map(b => `<span class="badge got">🏅 ${esc(b.name)}</span>`).join('')}</div>` : ''}
       <div class="btnrow" style="justify-content:center;margin-top:16px">
-        ${passed && window.__nextStage ? `<button class="btn primary" data-act="nextMapStage">下一關 ・ ${window.__nextStage.lv} 級 ${window.__nextStage.letter} →</button>` : ''}
+        ${passed && after.full && window.__nextStage
+        ? `<button class="btn primary big-btn" data-act="nextMapStage">下一關 ・ ${window.__nextStage.lv} 級 ${window.__nextStage.letter} →</button>` : ''}
+        ${passed && !after.full
+        ? `<button class="btn primary big-btn" data-act="continueLetter">繼續練習（新單字 ${Math.min(after.left, S.settings.stageQuestions || 10)} 個）→</button>` : ''}
         ${!passed ? '<button class="btn primary" data-act="retryMapStage">再挑戰一次</button>' : ''}
         ${window.__wrongIds.length ? `<button class="btn gold" data-act="fixWrong">✏ 訂正錯的 ${window.__wrongIds.length} 個字</button>` : ''}
         <button class="btn ghost" data-act="backToMap">回關卡地圖</button>
@@ -1530,15 +1538,18 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const tiles = S.LETTERS.map(L => {
       const st = S.mapStat(lv, L);
       if (!st.total) return `<button class="pill az" disabled style="opacity:.25">${L}</button>`;
-      const title = `${st.total} 字・已學會 ${st.known}${st.tries ? `・挑戰 ${st.tries} 次` : ''}${st.combo ? `・最佳連擊 ×${st.combo}` : ''}`;
-      const pct = Math.round(st.known / st.total * 100);
-      const stars = st.cleared ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : `${pct}%`;
-      return `<button class="pill az ${st.cleared ? 'on' : ''}" data-mapletter="${lv}:${L}" title="${esc(title)}">${L}<br><span style="font-size:10px;opacity:.8">${stars}</span></button>`;
+      const pct = Math.round(st.pct * 100);
+      const title = `${st.total} 字・已學會 ${st.known}（完成度 ${pct}%）${st.tries ? `・挑戰 ${st.tries} 次` : ''}${st.combo ? `・最佳連擊 ×${st.combo}` : ''}${st.full ? '・已 100% 完成' : ''}`;
+      // 100% 完成才給星星；只是某一輪通過就顯示完成度
+      const label = st.full ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : `${pct}%`;
+      return `<button class="pill az ${st.full ? 'on' : st.cleared ? 'part' : ''}" data-mapletter="${lv}:${L}" title="${esc(title)}">${L}<br><span style="font-size:10px;opacity:.8">${label}</span></button>`;
     }).join('');
     const st = S.levelStat(lv);
+    const fullN = S.LETTERS.filter(L => S.mapStat(lv, L).full).length;
     render(`<div class="card">
-      ${pageHead(`第 ${lv} 級　<span class="tiny">${st.cleared}/${st.playable} 個字母關通過</span>`, { back: true })}
-      <p class="muted">選一個字母開始。還沒通關的磚顯示「已學會比例」，通關的顯示星數。</p>
+      ${pageHead(`第 ${lv} 級　<span class="tiny">${fullN}/${st.playable} 個字母關 100% 完成</span>`, { back: true })}
+      <p class="muted">磚上是<b>完成度</b>（這個字母的字學會幾成）。<b style="color:var(--gold)">100% 才會顯示星星、才會開放下一關</b>；
+        沒到 100% 的話，通關後只會給「繼續練習（新單字）」。</p>
       ${bar('這一級的單字進度', st.known, st.total, `${st.known}/${st.total} 字`, 'g-lv' + lv)}
       ${bar('這一級的通關進度', st.cleared, st.playable, `${st.cleared}/${st.playable} 關`, 'g-gold')}
       <div class="pills" style="margin-top:10px">${tiles}</div>
@@ -1571,8 +1582,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
              名額改成多考這一關的單字。</p>`;
       })()}
       <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.PASS_ACC * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
-      ${st.cleared ? `<p class="tiny" style="color:var(--ac)">這一關已通過 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}　挑戰過 ${st.tries} 次</p>`
-      : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}
+      ${st.full ? `<p class="tiny" style="color:var(--gold)">🏆 這一關已 100% 完成 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}　挑戰過 ${st.tries} 次</p>`
+      : st.cleared ? `<p class="tiny" style="color:var(--ac)">曾經通過，但完成度 ${Math.round(st.pct * 100)}%（還有 ${st.left} 個字沒學會）—— 練完才會開放下一關</p>`
+        : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}
     </div>`);
   }
 
@@ -2518,6 +2530,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'nextMapStage') {
       const n = window.__nextStage;
       return n ? letterSetup(n.lv, n.letter) : home();
+    }
+    if (a === 'continueLetter') {
+      // 同一個字母繼續練沒學過的字（完成度沒到 100% 就不放你走）
+      const c = window.__lastMap;
+      if (!c) return home();
+      const st = S.mapStat(c.lv, c.letter);
+      const n = Math.max(3, Math.min(st.left, S.settings.stageQuestions || 10));
+      return startMapStage(c.lv, c.letter, n);
     }
     if (a === 'retryMapStage') {
       const c = window.__lastMap;

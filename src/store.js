@@ -667,6 +667,12 @@
     return {
       lv, letter, key, total: ids.length, known,
       cleared: !!m.cleared, stars: m.stars || 0, tries: m.tries || 0, best: m.best || 0,
+      combo: m.combo || 0,
+      // full = 正確率過門檻「而且」這個字母的字 100% 都學會了 —— 只有這樣才算真正打完，
+      // 可以前往下一關；否則只能繼續練這一關剩下的新字。
+      pct: ids.length ? known / ids.length : 0,
+      left: Math.max(0, ids.length - known),
+      full: !!m.cleared && ids.length > 0 && known >= ids.length,
     };
   }
 

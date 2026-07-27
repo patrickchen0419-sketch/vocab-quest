@@ -357,25 +357,62 @@ t('齒輪＝暫停，裡面才有離開（放棄）', () => {
   assert(!has('已暫停'), '沒有恢復');
 });
 
-t('全部答對 → 通關，並給 XP 與金幣', () => {
+t('全部答對 → 這一輪通過，並給 XP 與金幣', () => {
   const coinsBefore = S.coins();
   const r = walkStage({ correct: true });
   assert(r.end === 'cleared', '沒通關：' + r.end);
-  assert(has('通關！'), '沒顯示通關：' + txt().slice(0, 250));
+  assert(has('通過') || has('完成'), '沒顯示通過：' + txt().slice(0, 250));
+  assert(has('完成度'), '沒顯示這一關的完成度');
   assert(has('XP') && has('🪙'), '沒給 XP 或金幣');
   assert(S.coins() > coinsBefore, `金幣沒增加：${coinsBefore} → ${S.coins()}`);
   assert(S.mapStat(3, 'B').cleared === true, '字母關沒記為通過');
 });
 
-t('通關後有「下一關 / 訂正 / 回地圖」', () => {
-  assert(doc.querySelector('[data-act="nextMapStage"]'), '沒有下一關');
+t('完成度沒到 100% 時只給「繼續練習（新單字）」，不給下一關', () => {
+  const st = S.mapStat(3, 'B');
+  assert(st.total > 5, 'B 關字太少，測不到這個規則');
+  assert(st.full === false, '這一輪只練了幾個字，不該算 100% 完成');
+  assert(!doc.querySelector('[data-act="nextMapStage"]'), '完成度沒到 100% 卻出現下一關');
+  assert(doc.querySelector('[data-act="continueLetter"]'), '沒有「繼續練習（新單字）」');
+  assert(has('繼續練習'), '按鈕文字不對：' + txt().slice(0, 300));
+  assert(has('沒學會'), '沒說明還差幾個字');
   assert(doc.querySelector('[data-act="backToMap"]'), '沒有回地圖');
 });
+
+t('按「繼續練習」會用同一個字母的新字再開一關', () => {
+  const before = S.mapStat(3, 'B').known;
+  click('[data-act="continueLetter"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const r = window.__run();
+  assert(r, '沒開始新的一關');
+  assert(r.cfg.map && r.cfg.map.lv === 3 && r.cfg.map.letter === 'B', '跑到別的關了：' + JSON.stringify(r.cfg.map));
+  const ids = r.qs.filter(q => q.i != null).map(q => q.i);
+  assert(ids.every(i => V[i].lv === 3 && V[i].w[0].toUpperCase() === 'B'), '混進別的字母');
+  walkStage({ correct: true });
+  assert(S.mapStat(3, 'B').known > before, '練完之後完成度沒往上');
+});
+
 
 t('連勝會累加並顯示在頂端', () => {
   assert(S.winStreak() >= 1, '連勝沒累加');
   click('[data-act="backToMap"]');
   assert(has('第 3 級'), '沒回到地圖');
+});
+
+t('100% 完成後才顯示星星，字母磚也會標成完成', () => {
+  // 把 B 關剩下的字全部標成已學會，模擬完成度 100%
+  S.bucket(3, 'B').forEach(i => S.markKnown(i, 2));
+  const st = S.mapStat(3, 'B');
+  assert(st.known === st.total, '沒有全部學會');
+  assert(st.full === true, '全部學會後應該算 100% 完成');
+  goHome();
+  click('[data-maplv="3"]');
+  const tile = doc.querySelector('[data-mapletter="3:B"]');
+  assert(tile && tile.className.includes('on'), '完成的字母磚沒標成完成');
+  assert(has('100% 完成'), '級別頁沒顯示完成數');
+  click('[data-mapletter="3:B"]');
+  assert(has('已 100% 完成'), '選字數頁沒標出已完成：' + txt().slice(0, 300));
 });
 
 t('錯太多 → 不通關，連勝歸零，XP 不入帳', () => {
