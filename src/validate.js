@@ -92,8 +92,8 @@ console.log(`  with grammar link: ${withGp} | with trap note: ${withTrap}`);
 
 console.log('\n=== memes.js ===');
 const ME = window.MEMES || {};
-const memeKeys = ['ok', 'fast', 'wrong', 'timeout', 'combo', 'clear', 'fail', 'gameover',
-  'levelup', 'checkin', 'cards', 'review', 'sweep', 'wrongStage', 'bonus', 'daily'];
+const memeKeys = ['pause', 'resume', 'ok', 'fast', 'wrong', 'timeout', 'combo', 'clear', 'fail',
+  'gameover', 'levelup', 'checkin', 'cards', 'review', 'sweep', 'wrongStage', 'bonus', 'daily'];
 const missing = memeKeys.filter(k => !Array.isArray(ME[k]) || !ME[k].length);
 missing.length === 0 ? ok(`${memeKeys.length} 個情境都有台詞`) : bad('缺少台詞的情境: ' + missing);
 const chestTiers = ['wood', 'silver', 'gold', 'rainbow'];

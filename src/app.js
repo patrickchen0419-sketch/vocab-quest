@@ -20,13 +20,30 @@
   }
   /* 迷因台詞：讀久了會累，在結算／回饋／開箱這些抬頭喘口氣的地方放一句。
      設定頁可以關掉；關掉之後所有呼叫都回空字串，不影響版面。 */
+  /* 洗牌袋：同一個情境的台詞會全部輪過一遍才可能重複，
+     不然隨機抽很容易連續看到同一句（那就不好笑了）。 */
+  const memeBag = {}, memeLast = {};
   function memeLine(key, sub) {
     if (!S.settings.memes) return '';
     const M = window.MEMES || {};
     let list = M[key];
     if (sub && list && !Array.isArray(list)) list = list[sub];
     if (!Array.isArray(list) || !list.length) return '';
-    return list[Math.floor(Math.random() * list.length)];
+    const id = key + (sub ? ':' + sub : '');
+    let bag = memeBag[id];
+    if (!bag || !bag.length || bag.total !== list.length) {
+      bag = Q.shuffle(list.map((_, k) => k));
+      bag.total = list.length;
+      // 換新袋子時，別讓「上一句」剛好排在最前面 —— 否則會出現連續兩次同一句
+      if (list.length > 1 && bag[bag.length - 1] === memeLast[id]) {
+        const j = Math.floor(Math.random() * (bag.length - 1));
+        [bag[bag.length - 1], bag[j]] = [bag[j], bag[bag.length - 1]];
+      }
+      memeBag[id] = bag;
+    }
+    const idx = bag.pop();
+    memeLast[id] = idx;
+    return list[idx];
   }
   /** 首頁每日一句：用日期當種子，一天固定一句（重整不會換）。 */
   function memeDaily() {
@@ -625,6 +642,7 @@
     run.paused = true;
     clearInterval(run.timer);
     overlay(`<h2>⏸ 已暫停</h2>
+      ${memeTag('pause')}
       <p class="muted">計時停住了，慢慢來。</p>
       <div class="btnrow" style="justify-content:center;margin-top:12px">
         <button class="btn primary" data-close="resume">繼續作答</button>
@@ -647,6 +665,8 @@
   function resumeStage() {
     if (!run || !run.paused) return;
     run.paused = false;
+    const rm = memeLine('resume');
+    if (rm) toast(rm);
     const q = run.qs[run.idx];
     if (q && !run.locked && S.settings.timer && limitOf(q) > 0) startTimer(q, Math.max(1, run.left));
   }
@@ -1565,6 +1585,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (!c) return;
     if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch (e) { /* 沒語音引擎 */ } }
     overlay(`<h2>⏸ 已暫停</h2>
+      ${memeTag('pause')}
       <p class="muted">看到第 ${c.k + 1}/${c.ids.length} 張，慢慢來。這個階段還沒開始計時。</p>
       <p class="tiny">先離開的話這一關不算失敗（還沒開始作答），下次進來會重新看卡片。</p>
       <div class="btnrow" style="justify-content:center;margin-top:12px">
@@ -2562,6 +2583,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       if (run && run.inStage) {
         if (!run.paused) { run.paused = true; clearInterval(run.timer); }
         return overlay(`<h2>⏸ 已暫停</h2>
+          ${memeTag('pause')}
           <p class="muted">計時停住了，慢慢來。</p>
           <p class="tiny">離開＝放棄這一關：不算通過、連勝歸零、累積的 ${run.pendingXp} XP 不入帳。作答紀錄仍會保留。</p>
           <div class="btnrow" style="justify-content:center;margin-top:12px">
@@ -2707,6 +2729,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   }
 
   window.__run = () => run;          // 測試接縫：讓 test-ui.js 能檢查目前關卡狀態
+  window.__meme = (key, sub) => memeLine(key, sub);   // 測試接縫：驗證台詞不會連續重複
 
   // ---------------- 錯誤攔截 ----------------
   /* 事件處理器一旦拋錯，畫面會停在原地、按鈕像是「壞掉沒反應」。

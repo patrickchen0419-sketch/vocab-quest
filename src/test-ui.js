@@ -1193,6 +1193,50 @@ t('設定頁可以關掉迷因，關掉後畫面就不出現', () => {
   S.settings.memes = true;
 });
 
+t('暫停時會出現 ZA WARUDO 那類台詞，繼續時也有一句', () => {
+  S.settings.memes = true;
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  click('[data-act="gear"]');
+  assert(has('已暫停'), '沒暫停');
+  assert(doc.querySelector('.meme'), '暫停視窗沒有台詞：' + txt().slice(0, 400));
+  assert((window.MEMES.pause || []).some(x => has(x)), '台詞不在 pause 清單裡');
+  assert(window.MEMES.pause.some(x => x.includes('ZA WARUDO')), '台詞庫裡沒有 ZA WARUDO');
+  click('[data-close="resume"]');
+  const r = window.__run(); if (r) r.inStage = false;
+});
+
+t('台詞用洗牌袋：輪完一遍才重複，而且不會連續兩次同一句', () => {
+  S.settings.memes = true;
+  ['ok', 'wrong', 'clear', 'pause', 'combo'].forEach(key => {
+    const list = window.MEMES[key];
+    const pulls = [];
+    for (let k = 0; k < list.length * 3; k++) pulls.push(window.__meme(key));
+    // 每一句都必須來自清單
+    pulls.forEach(x => assert(list.includes(x), `${key} 抽到清單外的台詞：${x}`));
+    // 不會連續兩次同一句（換袋子的交界也要守住）
+    for (let k = 1; k < pulls.length; k++) {
+      assert(pulls[k] !== pulls[k - 1], `${key} 連續兩次同一句：${pulls[k]}（第 ${k} 次）`);
+    }
+    // 三輪之內每一句都要出現過（洗牌袋才有意義；純隨機幾乎不可能達成）
+    assert(new Set(pulls).size === list.length, `${key} 有台詞從沒出現：${new Set(pulls).size}/${list.length}`);
+    // 每一句出現的次數要平均（洗牌袋 ≈ 3 次；純隨機會有人 0 次有人 8 次）
+    const count = {};
+    pulls.forEach(x => { count[x] = (count[x] || 0) + 1; });
+    const times = Object.values(count);
+    assert(Math.max(...times) - Math.min(...times) <= 2,
+      `${key} 出現次數太不平均：${Math.min(...times)}～${Math.max(...times)}`);
+  });
+  assert(window.MEMES.ok.length >= 20, 'ok 類台詞太少：' + window.MEMES.ok.length);
+  assert(window.MEMES.pause.some(x => x.includes('ZA WARUDO')), '台詞庫裡沒有 ZA WARUDO');
+  assert(window.MEMES.clear.some(x => x.includes('ハイ')), '通關沒有「最高にハイってやつだ」');
+});
+
 t('台詞庫的內容有守規矩（長度、不吐槽學生）', () => {
   const M = window.MEMES;
   const all = Object.keys(M).flatMap(k => (Array.isArray(M[k]) ? M[k] : Object.values(M[k]).flat()));
