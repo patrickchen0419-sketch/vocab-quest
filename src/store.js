@@ -31,7 +31,7 @@
       streak: 0, bestStreak: 0,
       lastStudy: null,
       badges: [],
-      settings: Object.assign({}, COUNT_DEFAULTS, { difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75, offKinds: [] }),
+      settings: Object.assign({}, COUNT_DEFAULTS, { difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75, memes: true, offKinds: [] }),
     },
     words: {},
     days: {},

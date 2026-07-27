@@ -179,7 +179,7 @@ let printed = 0;
 const downloads = [];
 global.__downloads = downloads;
 
-for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js',
+for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js', 'data/memes.js',
   'src/store.js', 'src/quiz.js', 'src/app.js']) {
   new Function(fs.readFileSync(path.join(root, f), 'utf8')).call(global);
 }
@@ -1144,6 +1144,63 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   assert(S.day().newIds.length === n - 1, `新字數應該是 ${n - 1}，實際 ${S.day().newIds.length}`);
   const r = window.__run && window.__run();
   if (r) r.inStage = false;
+});
+
+console.log('\n--- 迷因台詞 ---');
+t('首頁有「今日廢話」，同一天不會變', () => {
+  S.settings.memes = true;
+  goHome();
+  assert(has('今日廢話'), '首頁沒有每日一句：' + txt().slice(0, 300));
+  const grab = () => {
+    const m = txt().match(/今日廢話：([^<]+)</);
+    return m && m[1];
+  };
+  const a = grab();
+  assert(a, '抓不到每日一句');
+  goHome();
+  assert(grab() === a, '同一天的每日一句不該變');
+  assert((window.MEMES.daily || []).includes(a), '每日一句不在台詞庫裡');
+});
+
+t('答對／答錯的回饋會帶一句吐槽', () => {
+  S.settings.instantFeedback = true;
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const q = curQ();
+  const opts = doc.querySelectorAll('.opt');
+  if (opts.length) fire('click', opts[q.a]);
+  else { doc.querySelector('#ans').value = q.answer || (q.accept && q.accept[0]) || 'x'; click('[data-act="submit"]'); }
+  assert(doc.querySelector('.meme'), '回饋沒有迷因台詞：' + txt().slice(0, 400));
+  const lines = (window.MEMES.ok || []).concat(window.MEMES.fast || []);
+  assert(lines.some(x => has(x)), '台詞不在 ok/fast 清單裡');
+  S.settings.instantFeedback = false;
+  const r = window.__run(); if (r) r.inStage = false;
+});
+
+t('設定頁可以關掉迷因，關掉後畫面就不出現', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(doc.querySelector('[data-chk="memes"]'), '設定頁沒有迷因開關');
+  S.settings.memes = false;
+  goHome();
+  assert(!has('今日廢話'), '關掉後首頁還有每日一句');
+  assert(!doc.querySelector('.meme'), '關掉後還有迷因元素');
+  S.settings.memes = true;
+});
+
+t('台詞庫的內容有守規矩（長度、不吐槽學生）', () => {
+  const M = window.MEMES;
+  const all = Object.keys(M).flatMap(k => (Array.isArray(M[k]) ? M[k] : Object.values(M[k]).flat()));
+  assert(all.length >= 80, '台詞太少：' + all.length);
+  all.forEach(x => assert(x.length <= 32, '台詞過長：' + x));
+  // 不要出現貶低學生的字眼
+  ['笨', '蠢', '廢物', '沒救'].forEach(w =>
+    assert(!all.some(x => x.includes(w)), `台詞出現不該有的字眼「${w}」`));
 });
 
 console.log('\n--- 衝刺目標 ---');

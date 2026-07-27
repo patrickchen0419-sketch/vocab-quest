@@ -553,6 +553,19 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .btn.big-btn { font-size: 16px; padding: 13px 20px; }
 .tiny.gold, .gold { color: var(--gold); }
 
+/* ================= 迷因台詞 ================= */
+/* 刻意做得像「旁邊有人吐槽」：斜體、低對比、左邊一條線，不搶正文注意力 */
+.meme {
+  margin: 8px 0 0; padding: 6px 0 6px 11px;
+  border-left: 3px solid var(--purple);
+  color: var(--tx2); font-size: 13px; font-style: italic; line-height: 1.5;
+}
+.meme.inline { display: block; border-left: none; padding: 4px 0 0; color: var(--purple); }
+.meme.daily {
+  margin: 8px 0 12px; border-left-color: var(--gold); color: var(--tx2);
+  background: rgba(245, 185, 66, .06); border-radius: 0 10px 10px 0; padding: 8px 12px;
+}
+
 /* ================= 錯題加強 ================= */
 .card.wrongcard { border-color: var(--red); background: linear-gradient(160deg, #3a1a1f 0%, var(--card) 55%); }
 .redotag {

@@ -4,7 +4,7 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 global.window = global;
-for (const f of ['words.js', 'grammar.js', 'sentences.js']) {
+for (const f of ['words.js', 'grammar.js', 'sentences.js', 'memes.js']) {
   new Function(fs.readFileSync(path.join(root, 'data', f), 'utf8')).call(global);
 }
 
@@ -89,6 +89,24 @@ keys.forEach(k => { const w = byW.get(k); if (w) lvSpread[w.lv] = (lvSpread[w.lv
 console.log('  level spread:', JSON.stringify(lvSpread));
 const withGp = keys.filter(k => S[k].gp).length, withTrap = keys.filter(k => S[k].trap).length;
 console.log(`  with grammar link: ${withGp} | with trap note: ${withTrap}`);
+
+console.log('\n=== memes.js ===');
+const ME = window.MEMES || {};
+const memeKeys = ['ok', 'fast', 'wrong', 'timeout', 'combo', 'clear', 'fail', 'gameover',
+  'levelup', 'checkin', 'cards', 'review', 'sweep', 'wrongStage', 'bonus', 'daily'];
+const missing = memeKeys.filter(k => !Array.isArray(ME[k]) || !ME[k].length);
+missing.length === 0 ? ok(`${memeKeys.length} 個情境都有台詞`) : bad('缺少台詞的情境: ' + missing);
+const chestTiers = ['wood', 'silver', 'gold', 'rainbow'];
+const badChest = chestTiers.filter(t => !Array.isArray((ME.chest || {})[t]) || !ME.chest[t].length);
+badChest.length === 0 ? ok('四種寶箱都有台詞') : bad('缺少寶箱台詞: ' + badChest);
+const allLines = memeKeys.flatMap(k => ME[k] || []).concat(chestTiers.flatMap(t => (ME.chest || {})[t] || []));
+const tooLong = allLines.filter(x => typeof x !== 'string' || x.length > 32);
+tooLong.length === 0 ? ok(`${allLines.length} 句台詞都在 32 字以內`) : bad('過長或型別錯誤: ' + tooLong.slice(0, 3));
+const emptyLine = allLines.filter(x => !String(x).trim());
+emptyLine.length === 0 ? ok('沒有空白台詞') : bad(`${emptyLine.length} 句空白`);
+const dupLine = new Set(); const dupM = allLines.filter(x => dupLine.size === dupLine.add(x).size);
+dupM.length === 0 ? ok('沒有重複台詞') : bad('重複: ' + dupM.slice(0, 3));
+console.log(`  total lines: ${allLines.length}`);
 
 console.log(fail === 0 ? '\n✅ all checks passed\n' : `\n❌ ${fail} check(s) failed\n`);
 process.exit(fail === 0 ? 0 : 1);

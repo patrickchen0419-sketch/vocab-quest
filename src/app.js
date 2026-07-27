@@ -18,6 +18,31 @@
     if (isNaN(d.getTime())) return '';
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
+  /* 迷因台詞：讀久了會累，在結算／回饋／開箱這些抬頭喘口氣的地方放一句。
+     設定頁可以關掉；關掉之後所有呼叫都回空字串，不影響版面。 */
+  function memeLine(key, sub) {
+    if (!S.settings.memes) return '';
+    const M = window.MEMES || {};
+    let list = M[key];
+    if (sub && list && !Array.isArray(list)) list = list[sub];
+    if (!Array.isArray(list) || !list.length) return '';
+    return list[Math.floor(Math.random() * list.length)];
+  }
+  /** 首頁每日一句：用日期當種子，一天固定一句（重整不會換）。 */
+  function memeDaily() {
+    if (!S.settings.memes) return '';
+    const list = (window.MEMES || {}).daily || [];
+    if (!list.length) return '';
+    const t = S.todayStr();
+    let h = 0;
+    for (let k = 0; k < t.length; k++) h = (h * 31 + t.charCodeAt(k)) >>> 0;
+    return list[h % list.length];
+  }
+  const memeTag = (key, sub) => {
+    const m = memeLine(key, sub);
+    return m ? `<div class="meme">${esc(m)}</div>` : '';
+  };
+
   /** 進度條：一行標題＋數字＋條。首頁與紀錄頁共用。 */
   function bar(label, cur, max, note, cls) {
     const pct = max > 0 ? Math.max(0, Math.min(100, cur / max * 100)) : 0;
@@ -230,6 +255,7 @@
       <p class="muted">${checkin
       ? `✅ 今日已簽到 <b style="color:var(--ac)">+${checkin.xp} XP　+${checkin.coin} 🪙</b>${checkin.item ? `　🧪 ${esc((S.shopItem(checkin.item) || {}).name || '')}` : ''}${checkin.chest ? '　💎 金寶箱' : ''}（${fmtTime(checkin.at)}）`
       : '通關任何一關就會自動簽到。同一輪裡一天比一天多，第 7 天直接給金寶箱。'}</p>
+      ${checkin ? memeTag('checkin') : ''}
       <div class="citrack">${cells}</div>
       ${bar('本輪進度', pv.today, 7, `${pv.today}/7 天`, 'g-orange')}
       <p class="tiny">連續天數不中斷 → 進入下一輪，整輪獎勵再 ×1.15（最多 ×2）。
@@ -285,6 +311,7 @@
     render(`
       <div class="card hero">
         <h2>冒險進度 <span class="tiny">${t}（${WD[new Date().getDay()]}）</span></h2>
+        ${(() => { const dm = memeDaily(); return dm ? `<div class="meme daily">今日廢話：${esc(dm)}</div>` : ''; })()}
         <div class="grid2">
           <div class="stat ok"><b>${pg.known}</b><span>已學會的字</span></div>
           <div class="stat blue"><b>${pg.mastered}</b><span>進長期記憶</span></div>
@@ -308,6 +335,7 @@
         if (!st.unseen) return '';
         return `<div class="card sweepcard">
           <h2>⚡ 先把「本來就會的字」篩掉</h2>
+          ${memeTag('sweep')}
           <p class="muted">詞彙表裡很多字你小學就會了，不需要當新字學。一次看 12 個字、<b>只點掉不會的</b>，
             剩下的直接算已會（會抽考 2 個確認，之後也照樣進複習抽查）。</p>
           ${easy ? bar('第 1–2 級待篩（最可能已經會的）', 2004 - easy, 2004, `還有 ${easy} 字沒篩`, 'g-cyan') : ''}
@@ -319,6 +347,7 @@
       ${due ? `<div class="card act-review">
         <h2>今天有 ${due} 個字到期要複習</h2>
         <p class="muted">這些是之前學過、時間到了該回顧的字。清掉它們才不會忘記。</p>
+        ${memeTag('review')}
         ${bar('今天已完成的複習題', sum.reviewTotal, Math.max(due, sum.reviewTotal || 1), `${sum.reviewTotal} 題`, 'g-red')}
         <div class="btnrow"><button class="btn primary" data-act="startReview">開始複習（${Math.min(due, 15)} 題）</button></div>
       </div>` : `<div class="card act-review"><h2>今天沒有到期的複習 ✅</h2>
@@ -336,6 +365,7 @@
         const names = wp.slice(0, 8).map(x => V()[x.i].w);
         return `<div class="card wrongcard">
           <h2>🔁 錯題加強 <span class="tiny">${wp.length} 個字還沒練起來</span></h2>
+          ${memeTag('wrongStage')}
           <p class="muted">錯過的字出題機率已經自動調高（錯越多次、越常出現），同一關裡答錯還會<b>當場補考一次</b>。
             想集中火力就直接打錯題關。</p>
           ${lc.length ? `<p class="tiny" style="color:var(--red)">⚠ 難字（錯 3 次以上）${lc.length} 個：${esc(lc.slice(0, 6).map(x => V()[x.i].w).join('、'))}${lc.length > 6 ? '…' : ''}</p>` : ''}
@@ -429,6 +459,7 @@
     const last = gifts[gifts.length - 1];
     overlay(`<div class="big" style="color:var(--purple)">⬆ 升級！Lv.${last.level}</div>
       <p class="muted">升等獎勵已經放進你的背包了。</p>
+      ${memeTag('levelup')}
       ${rows}
       <p class="tiny" style="margin-top:8px">消耗品會在下一關開始時自動使用；外觀與稱號到商店裡「使用」。</p>
       <div class="btnrow" style="justify-content:center;margin-top:12px">
@@ -712,7 +743,10 @@
       milestone = COMBO_MILESTONES.includes(run.combo) ? run.combo * 3 : 0;
       gained = Math.round((BASE_XP + speed + comboBonus + milestone) * S.diff().xp * S.xpMult());
       run.lastSpeed = sp;
-      if (milestone) toast(`🔥 ${run.combo} 連擊 BONUS +${Math.round(milestone * S.diff().xp)} XP`);
+      if (milestone) {
+        const mm = memeLine('combo');
+        toast(`🔥 ${run.combo} 連擊 BONUS +${Math.round(milestone * S.diff().xp)} XP${mm ? '　' + mm : ''}`);
+      }
       sfx.ok();
     } else if (ok === false) {
       run.combo = 0;
@@ -801,13 +835,17 @@
     } else if (ok) {
       const a = run.answers[run.answers.length - 1] || {};
       const sp = run.lastSpeed || { tag: '', sec: 0 };
+      const mm = memeLine(sp.frac >= 0.8 ? 'fast' : 'ok');
       head = `<b>✓ 答對了！</b>　+${gained} XP　<span style="color:var(--gold)">${esc(sp.tag)} ${sp.sec}s</span>
+        ${mm ? `<span class="meme inline">${esc(mm)}</span>` : ''}
         <span class="hint">底分 ${BASE_XP}${a.speed ? `　速度 +${a.speed}` : ''}${a.comboBonus ? `　連擊 +${a.comboBonus}` : ''}${a.milestone ? `　里程碑 +${a.milestone}` : ''}${S.diff().xp !== 1 ? `　難度 ×${S.diff().xp}` : ''}</span>
         ${run.combo >= 3 ? `<span class="hint">本關連擊 ×${run.combo}（換關或答錯就歸零）</span>` : ''}`;
     } else {
       const ansTxt = q.opts ? q.opts[q.a] : q.answer;
+      const mm = memeLine(timeout ? 'timeout' : 'wrong');
       head = `<b>✗ ${timeout ? '時間到' : '答錯了'}</b>　正確答案：<b style="color:var(--ac)">${esc(ansTxt)}</b>
-        ${run.maxHearts ? `<span class="hint">扣一顆心，剩 ${run.hearts} 顆</span>` : ''}`;
+        ${run.maxHearts ? `<span class="hint">扣一顆心，剩 ${run.hearts} 顆</span>` : ''}
+        ${mm ? `<span class="meme inline">${esc(mm)}</span>` : ''}`;
     }
     const w = q.i != null ? V()[q.i] : null;
     const extra = [];
@@ -838,6 +876,7 @@
     if (!canRevive) recordFail();
     sfx.dead();
     overlay(`<div class="big" style="color:var(--red)">GAME OVER</div>
+      ${memeTag('gameover')}
       <p class="muted">血量用完了。這一關累積的 <b>${run.pendingXp} XP 全部作廢</b>，星數不給、連擊歸零，要重新挑戰。</p>
       <p class="tiny">別擔心 — 你剛才答錯的字<b>都已經記錄下來</b>，會排進間隔複習，也會出現在今天的家長回報裡。正確率只採計第 1 次作答，重來不會虛胖。</p>
       <div class="btnrow" style="justify-content:center;margin-top:12px">
@@ -952,9 +991,11 @@
       ? `<div class="stars" style="font-size:40px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
          <h2 style="color:var(--ac)">${after.full ? `完成！第 ${lv} 級 ・ ${letter} 關 100% 打完` : `這一輪通過！第 ${lv} 級 ・ ${letter} 關`}</h2>
          ${bar(`${letter} 關完成度`, after.known, after.total, `${after.known}/${after.total} 字　${Math.round(after.pct * 100)}%`, after.full ? 'g-gold' : 'g-green')}
-         ${after.full ? '' : `<p class="tiny">還有 <b style="color:var(--gold)">${after.left}</b> 個字沒學會 —— 完成度 100% 才會開放下一關。</p>`}`
+         ${after.full ? '' : `<p class="tiny">還有 <b style="color:var(--gold)">${after.left}</b> 個字沒學會 —— 完成度 100% 才會開放下一關。</p>`}
+         ${memeTag('clear')}`
       : `<div class="big" style="color:var(--red)">未通關</div>
          <p class="muted">正確率 ${Math.round(acc * 100)}%，沒到 <b>${Math.round(S.PASS_ACC * 100)}%</b> 的通關門檻。這一關的 XP 與金幣都不算，要再挑戰一次。</p>
+         ${memeTag('fail')}
          ${m.shielded ? '<p style="color:var(--blue)">🛡 連勝護盾擋下了，連勝保住！</p>' : (streakBefore ? '<p class="tiny">連勝歸零。</p>' : '')}`;
 
     render(`<div class="card sheet" style="text-align:center">
@@ -1023,6 +1064,7 @@
         return `<button class="btn purple" data-act="bonusRound">🎲 加碼題 ${Math.min(bonusCount(c), left)} 題（答錯不倒扣）</button>`;
       })()}
       </div>
+      ${c.bonusUsed ? '' : memeTag('bonus')}
       <p class="tiny">加碼題只出<b>這一關範圍內、剛剛沒考過的字</b>（沒學過的優先），題數是這一關的 ⅓（3～8 題）。
         全對升兩級、答對六成以上升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>`;
@@ -1088,6 +1130,7 @@
         <div class="big" style="margin-top:4px">${esc(r.name)}</div>
         ${r.upgraded ? '<p class="tiny" style="color:var(--purple)">🦄 獨角獸讓這個箱子升了一級！</p>' : ''}
         ${r.special ? '<p class="tiny" style="color:var(--gold)">✨ 開出稀有獎品！</p>' : ''}
+        ${memeTag('chest', r.tier)}
       </div>
       <div class="lootbig">
         <div class="loot coin big">🪙 +${r.coin}</div>
@@ -1503,6 +1546,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         <button class="btn primary" data-act="nextCard">${k + 1 >= ids.length ? '開始闖關 →' : '記住了，下一個 →'}</button>
         <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭</button>
       </div>
+      ${memeTag('cards')}
       <p class="tiny" style="text-align:center">看完這 ${ids.length} 個新字就開始闖關。
         按「早就會了」會把它當已會（不算今天的新字），但 3 天後複習還是會抽考它。</p>
     `);
@@ -2308,6 +2352,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <h3 style="margin-top:16px">其他</h3>
       <label class="row"><input type="checkbox" ${c.timer ? 'checked' : ''} data-chk="timer">每題倒數計時</label>
       <label class="row"><input type="checkbox" ${c.instantFeedback ? 'checked' : ''} data-chk="instantFeedback">每題答完立刻對答案（預設關閉：整關結束才一次結算）</label>
+      <label class="row"><input type="checkbox" ${c.memes ? 'checked' : ''} data-chk="memes">顯示迷因台詞（讀累了看一句廢話，可關）</label>
       <label class="row"><input type="checkbox" ${c.sfx ? 'checked' : ''} data-chk="sfx">音效</label>
       <label class="row"><input type="checkbox" ${c.tts ? 'checked' : ''} data-chk="tts">單字發音</label>
       <label class="slider">發音速度：<b>${c.speechRate || 75}</b>%<input type="range" min="50" max="110" step="5" value="${c.speechRate || 75}" data-set="speechRate"></label>

@@ -14,7 +14,7 @@ global.window = global;
 global.setTimeout = setTimeout;
 global.clearTimeout = clearTimeout;
 
-for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js', 'src/store.js', 'src/quiz.js']) {
+for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js', 'data/memes.js', 'src/store.js', 'src/quiz.js']) {
   new Function(fs.readFileSync(path.join(root, f), 'utf8')).call(global);
 }
 const S = window.Store, Q = window.Quiz, V = window.VOCAB;
