@@ -484,9 +484,30 @@
       </div>`);
   }
 
+  /** 這一輪考了什麼：答錯的字、答對的字、每個字用過的題型。重新挑戰時用來換題。 */
+  function attemptInfo() {
+    const wrong = [], right = [], avoidKinds = {};
+    (run ? run.answers : []).forEach(a => {
+      const i = a.q.i;
+      if (i == null) return;
+      (avoidKinds[i] = avoidKinds[i] || []).push(a.q.kind);
+      if (a.ok === false && !wrong.includes(i)) wrong.push(i);
+      if (a.ok === true && !right.includes(i)) right.push(i);
+    });
+    return { keep: wrong, drop: right, avoidKinds };
+  }
+
+  /* 重新挑戰不是「同一份考卷再來一次」：
+     剛剛答錯的字一定再考（但換一種題型），剛剛答對的字換成別的字。
+     cfg.regen 由各關卡自己提供（闖關、複習、錯題關都有）。 */
   function restartStage() {
-    const c = run.cfg;
-    runStage(Object.assign({}, c, { attempt: run.attempt + 1, retries: run.retries + 1 }));
+    const c = run.cfg, info = attemptInfo();
+    let qs = null;
+    try { qs = c.regen ? c.regen(info) : null; } catch (e) { console.warn('重新出題失敗，改用原本的題目', e); }
+    runStage(Object.assign({}, c, {
+      questions: (qs && qs.length) ? qs : c.questions,
+      attempt: run.attempt + 1, retries: run.retries + 1,
+    }));
   }
 
   function hearts() {
@@ -959,6 +980,7 @@
     const m = S.recordStage(lv, letter, passed, acc, stars, run.bestCombo);
     const wrongIds = run.answers.filter(a => a.ok === false && a.q.i != null).map(a => a.q.i);
     window.__lastMap = { lv, letter, count: cfg.map.count };
+    window.__lastAttempt = attemptInfo();          // 再挑戰一次時用來換題
     window.__wrongIds = [...new Set(wrongIds)];
     window.__nextStage = S.nextStage(lv, letter);
 
@@ -1202,6 +1224,9 @@
     runStage({
       title: `🎲 加碼題（${qs.length} 題・全部是這一關沒考過的字）`,
       questions: qs, hearts: 0, bonus: true,
+      regen: info => Q.byErrWeight(pool).slice(0, want)
+        .map(i => Q.forWord(V()[i], null, shift, info.avoidKinds[i]))
+        .filter(q => q && !q.noGrade),
     });
   }
 
@@ -1363,7 +1388,10 @@
     // 複習關也放一題文法（文法要靠反覆碰到才會變成直覺）
     const g = (S.settings.gramPerStage || 0) > 0 ? Q.grammarSet(1).questions : [];
     if (g.length) qs.splice(Math.floor(qs.length / 2), 0, g[0]);
-    runStage({ title: '複習到期單字', questions: qs, hearts: S.diff().hearts, review: true });
+    runStage({
+      title: '複習到期單字', questions: qs, hearts: S.diff().hearts, review: true,
+      regen: info => Q.reviewSet(ids, S.diff().tierShift, info.avoidKinds),
+    });
   }
 
   // ---------------- 成績單 / 家長回報 ----------------
@@ -1653,10 +1681,11 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     </div>`);
   }
 
-  function startMapStage(lv, letter, count) {
+  function startMapStage(lv, letter, count, opts) {
     const ids = S.bucket(lv, letter);
     const n = Math.max(3, Math.min(count || 10, ids.length));
-    const qs = Q.stageSet(lv, letter, n, S.diff().tierShift);
+    const shift = S.diff().tierShift;
+    const qs = Q.stageSet(lv, letter, n, shift, opts);
     if (!qs.length) { toast('這一關沒有字'); return letterSetup(lv, letter); }
     // 開關前自動用掉身上的加成道具
     const used = [];
@@ -1672,6 +1701,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       title: `第 ${lv} 級 ・ ${letter} 關`,
       questions: qs, hearts,
       map: { lv, letter, count: n }, timeMul, xpCard,
+      // 重新挑戰時重新出題：答錯的字換題型再考，答對的字換掉
+      regen: info => Q.stageSet(lv, letter, n, shift, info),
     });
     const fresh = [...new Set(qs.map(q => q.i).filter(i => i != null && !S.isSeen(i)))];
     if (fresh.length) {
@@ -1686,7 +1717,10 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function startFixStage(ids, back) {
     const qs = Q.fixSet(ids, S.diff().tierShift);
     if (!qs.length) return back();
-    runStage({ title: '訂正剛才答錯的字', questions: qs, hearts: 0, fix: true, backTo: back });
+    runStage({
+      title: '訂正剛才答錯的字', questions: qs, hearts: 0, fix: true, backTo: back,
+      regen: info => Q.fixSet(ids, S.diff().tierShift, info.avoidKinds),
+    });
   }
 
   /** 刪去法道具：把兩個錯誤選項變灰不可選。 */
@@ -2608,7 +2642,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     }
     if (a === 'retryMapStage') {
       const c = window.__lastMap;
-      return c ? startMapStage(c.lv, c.letter, c.count) : home();
+      // 帶著上一輪的結果重新出題（答錯的換題型再考、答對的換掉）
+      return c ? startMapStage(c.lv, c.letter, c.count, window.__lastAttempt || null) : home();
     }
     if (a === 'fixWrong') {
       const c = window.__lastMap, ids = window.__wrongIds || [];
@@ -2645,13 +2680,19 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'startWrong') {
       const qs = Q.wrongSet(15, S.diff().tierShift);
       if (!qs.length) { toast('目前沒有錯題，很好'); return home(); }
-      return runStage({ title: '🔁 錯題加強', questions: qs, hearts: 0, review: true });
+      return runStage({
+        title: '🔁 錯題加強', questions: qs, hearts: 0, review: true,
+        regen: () => Q.wrongSet(15, S.diff().tierShift),
+      });
     }
     if (a === 'startLeech') {
       const ids = S.leeches(10).map(x => x.i);
       const qs = Q.fixSet(ids, S.diff().tierShift);
       if (!qs.length) { toast('目前沒有難字'); return home(); }
-      return runStage({ title: '⚠ 難字特訓', questions: qs, hearts: 0, review: true });
+      return runStage({
+        title: '⚠ 難字特訓', questions: qs, hearts: 0, review: true,
+        regen: info => Q.fixSet(ids, S.diff().tierShift, info.avoidKinds),
+      });
     }
     if (a === 'startReview') return startReview();
     if (a === 'next') return next();
@@ -2673,7 +2714,11 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'dlHtml') return dlHtml();
     if (a === 'startPractice') {
       const ids = Q.shuffle(poolOf()).slice(0, pr.n).map(w => w.i);
-      return runStage({ title: '自訂範圍練習', questions: Q.reviewSet(ids), hearts: S.diff().hearts });
+      return runStage({
+        title: '自訂範圍練習', questions: Q.reviewSet(ids), hearts: S.diff().hearts,
+        // 重來時整批重抽（自訂練習的池子通常很大）
+        regen: () => Q.reviewSet(Q.shuffle(poolOf()).slice(0, pr.n).map(w => w.i), S.diff().tierShift),
+      });
     }
     if (a === 'exportAll') {
       download(`vocabQuest-backup-${S.todayStr()}.json`, JSON.stringify(S.load(), null, 2), 'application/json');

@@ -69,6 +69,40 @@ t('forWord 對全字庫 400 個隨機字都能產出可判分的題目', () => {
   }
 });
 
+t('選項永遠不會重複：全字庫每個字掃 2 次', () => {
+  // 曾經有兩個字的中文釋義都只有「誰」，2-gram 比對抓不到 → 出現兩個一樣的選項
+  let dup = 0, badA = 0, sample = '';
+  for (const w of V) {
+    for (let k = 0; k < 2; k++) {
+      const q = Q.forWord(w, null, 0);
+      if (!q || !q.opts) continue;
+      if (new Set(q.opts).size !== q.opts.length) { dup++; if (!sample) sample = `${w.w}(${q.kind}): ${q.opts.join(' | ')}`; }
+      if (Q.grade(q, q.a) !== true) badA++;
+    }
+  }
+  assert(dup === 0, `有 ${dup} 題選項重複，例如 ${sample}`);
+  assert(badA === 0, `有 ${badA} 題的正解索引不對`);
+});
+
+t('釋義完全相同的兩個字不會互為選項', () => {
+  // 找出釋義字面完全一樣的字對，確認不會被選成彼此的誘答
+  const byTr = new Map();
+  V.forEach(w => { if (w.tr) (byTr.get(w.tr.trim()) || byTr.set(w.tr.trim(), []).get(w.tr.trim())).push(w); });
+  let pairs = 0;
+  byTr.forEach(list => { if (list.length >= 2) pairs++; });
+  assert(pairs > 0, '字庫裡沒有同釋義的字對，這個測試需要換樣本');
+  for (const [tr, list] of byTr) {
+    if (list.length < 2) continue;
+    const w = list[0];
+    for (let k = 0; k < 30; k++) {
+      const q = Q.gen.e2c(w);
+      if (!q) continue;
+      const same = q.opts.filter(o => o.trim() === tr).length;
+      assert(same === 1, `${w.w} 的選項出現 ${same} 個「${tr}」`);
+    }
+  }
+});
+
 t('拼字題答案接受大小寫與前後空白', () => {
   const w = V.find(x => Q.base(x.w) === 'academy');
   const q = Q.gen.spell(w);
@@ -282,6 +316,43 @@ t('但保留最多 ¼ 名額給「本關到期或答錯過」的字，錯題不�
     if (n >= 1) withBad++;
   }
   assert(withBad >= 28, `錯過的字幾乎沒被排進來：${withBad}/30`);
+  s.words = {};
+});
+
+t('重新挑戰會換單字：答錯的字換題型再考，答對的字換掉', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = S.bucket(3, 'C');
+  assert(ids.length >= 20, 'C 關字太少');
+  // 第一輪：假設前 8 個字被考到，其中 3 個答錯
+  const first = ids.slice(0, 8);
+  const wrong = first.slice(0, 3), right = first.slice(3);
+  const avoidKinds = {};
+  first.forEach(i => { avoidKinds[i] = ['e2c']; });          // 假設全部考過英→中
+  const qs = Q.stageSet(3, 'C', 10, 0, { keep: wrong, drop: right, avoidKinds });
+  const got = qs.filter(q => q.i != null).map(q => q.i);
+  // 答錯的字一定要再出現
+  wrong.forEach(i => assert(got.includes(i), `答錯的字沒有再考：${V[i].w}`));
+  // 答對的字要被換掉（除非字不夠）
+  const kept = right.filter(i => got.includes(i));
+  assert(kept.length === 0, `答對的字沒換掉：${kept.map(i => V[i].w)}`);
+  // 而且題型要換掉
+  qs.filter(q => avoidKinds[q.i]).forEach(q =>
+    assert(q.kind !== 'e2c', `${V[q.i].w} 又出了同一種題型 e2c`));
+  s.words = {};
+});
+
+t('字不夠時，重新挑戰仍然生得出題目（不會空白）', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = S.bucket(3, 'Z');
+  if (!ids.length) return;
+  const avoidKinds = {};
+  ids.forEach(i => { avoidKinds[i] = ['e2c', 'c2e', 'listen', 'spell', 'form', 'confuse']; });
+  const qs = Q.stageSet(3, 'Z', 10, 0, { keep: ids, drop: [], avoidKinds });
+  assert(qs.length >= 1, '重來時生不出題目');
+  qs.filter(q => q.i != null).forEach(q =>
+    assert(V[q.i].w[0].toUpperCase() === 'Z', '重來時混進別的字母'));
   s.words = {};
 });
 

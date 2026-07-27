@@ -52,6 +52,11 @@
   function glossClash(a, b) {
     a = String(a || ''); b = String(b || '');
     if (!a || !b) return false;
+    if (a.trim() === b.trim()) return true;                 // 完全一樣（例如兩個字都只翻成「誰」）
+    // 單字釋義（一個中文字）要用「整段相等」判斷，否則 2-gram 規則抓不到
+    const segs = t => String(t).split(/[；;，,]/).map(x => x.trim()).filter(Boolean);
+    const sb = segs(b);
+    for (const t of segs(a)) if (sb.includes(t)) return true;
     for (const seg of a.split(/[；;]/)) {
       const t = seg.trim();
       if (t.length >= 2 && b.includes(t)) return true;
@@ -87,10 +92,18 @@
   }
 
   function mc(word, kind, promptObj, correctText, wrongTexts, why) {
-    const opts = shuffle([correctText].concat(wrongTexts));
+    /* 保險絲：選項一旦重複，題目就變成「兩個都對」——寧可不出這題，讓上層換一種題型。
+       （distractors 已經擋掉釋義相近的字，這裡擋的是完全相同的字面。） */
+    const uniq = [];
+    [correctText].concat(wrongTexts).forEach(x => {
+      const t = String(x == null ? '' : x).trim();
+      if (t && !uniq.includes(t)) uniq.push(t);
+    });
+    if (uniq.length < 3) return null;
+    const opts = shuffle(uniq);
     return {
       kind, i: word ? word.i : null, secs: secsFor(kind),
-      prompt: promptObj, opts, a: opts.indexOf(correctText), why: why || '',
+      prompt: promptObj, opts, a: opts.indexOf(String(correctText).trim()), why: why || '',
     };
   }
 
@@ -332,24 +345,31 @@
     return Math.max(0, Math.min(WEIGHTS.length - 1, (b <= 0 ? 0 : b <= 2 ? 1 : 2) + (sh || 0)));
   }
 
-  function forWord(w, boxHint, shift) {
+  /** avoid：這些題型剛剛考過了，重新挑戰時換一種（湊不到才會用回去）。 */
+  function forWord(w, boxHint, shift, avoid) {
     const b = boxHint == null ? ((window.Store.load().words[w.i] || {}).b || 0) : boxHint;
     const sh = shift == null ? (window.Store.diff ? window.Store.diff().tierShift : 0) : shift;
     const tier = tierOf(b, sh);
+    const skip = k => avoid && avoid.length && avoid.includes(k);
     // 先賭句子題：這個字有例句就有機會直接考句子
     if (hasSent(w) && Math.random() < applyChance(b)) {
       for (const k of weightedOrder(APPLY_W[tier])) {
-        if (!kindOn(k)) continue;
+        if (!kindOn(k) || skip(k)) continue;
         const q = APPLY_GEN[k](w);
         if (q) return q;
       }
     }
     for (const k of weightedOrder(WEIGHTS[tier])) {
-      if (!kindOn(k)) continue;                    // 使用者關掉的題型不出
+      if (!kindOn(k) || skip(k)) continue;         // 使用者關掉的、剛考過的題型不出
       const q = RECOG[k](w);
       if (q) return q;
     }
-    // 全部關掉或都生不出來時，至少還要有題目
+    // 全部避開就生不出題了 → 放寬 avoid，再放寬使用者的題型開關
+    for (const k of weightedOrder(WEIGHTS[tier])) {
+      if (!kindOn(k)) continue;
+      const q = RECOG[k](w);
+      if (q) return q;
+    }
     for (const k of weightedOrder(WEIGHTS[tier])) { const q = RECOG[k](w); if (q) return q; }
     return q_e2c(w) || q_c2e(w);
   }
@@ -364,10 +384,11 @@
       .map(e => e[0]);
   }
 
-  function reviewSet(ids, shift) {
+  function reviewSet(ids, shift, avoidKinds) {
     const out = [];
+    const av = avoidKinds || {};
     // 同一份複習卷裡，錯題排前面（先練最弱的，體力最好的時候）
-    byErrWeight(ids).forEach(i => { const q = forWord(V()[i], null, shift); if (q) out.push(q); });
+    byErrWeight(ids).forEach(i => { const q = forWord(V()[i], null, shift, av[i]); if (q) out.push(q); });
     return out;
   }
 
@@ -548,9 +569,15 @@
 
   /** 闖關地圖的一關：從該 (級別, 字首) 的字裡挑字，並保留「句子運用」與「文法」的固定名額。
       還沒練熟的優先，其中「錯過的字」再加權 —— 錯題會比沒錯過的字更常被抽到。 */
-  function stageSet(lv, letter, n, shift) {
+  /** opts（重新挑戰時用）：
+      keep = 一定要再考的字（剛剛答錯的）、drop = 盡量換掉的字（剛剛已經答對的）、
+      avoidKinds = {字: [剛剛考過的題型]}。 */
+  function stageSet(lv, letter, n, shift, opts) {
     const ids = window.Store.bucket(lv, letter);
     if (!ids.length) return [];
+    const o = opts || {}, av = o.avoidKinds || {};
+    const keep = (o.keep || []).filter(i => ids.includes(i));
+    const drop = new Set((o.drop || []).filter(i => !keep.includes(i)));
     const st = window.Store.load(), c = cfg();
     // 名額：句子題與文法題按比例保留，總題數不變
     const gramSlots = Math.min(c.gramPerStage == null ? 1 : c.gramPerStage, Math.floor(n / 6));
@@ -572,10 +599,16 @@
     const dw = byErrWeight(dueOrWrong);
     const reserve = Math.min(dw.length, Math.floor(wordN / 4));
     // 完整的優先順序清單：保留名額的錯題 → 沒學過的 → 其餘錯題／到期 → 學過的 → 練熟的
-    const ordered = dw.slice(0, reserve)
+    let ordered = dw.slice(0, reserve)
       .concat(unseen, dw.slice(reserve), byErrWeight(seen), byErrWeight(mastered));
+    /* 重新挑戰：剛剛答錯的字一定再考（但換題型），剛剛答對的字排到最後 ——
+       所以重來時看到的字與題目會不一樣，而不是同一份考卷再來一次。 */
+    if (keep.length || drop.size) {
+      const later = ordered.filter(i => drop.has(i));
+      ordered = keep.concat(ordered.filter(i => !drop.has(i) && !keep.includes(i)), later);
+    }
     const pick_ = ordered.slice(0, wordN);
-    const base = pick_.map(i => forWord(V()[i], null, shift)).filter(Boolean);
+    const base = pick_.map(i => forWord(V()[i], null, shift, av[i])).filter(Boolean);
 
     const extras = [];
     if (applySlots > 0) {
@@ -599,7 +632,7 @@
     const need = n - base.length - extras.length;
     if (need > 0) {
       ordered.slice(wordN, wordN + need).forEach(i => {
-        const q = forWord(V()[i], null, shift);
+        const q = forWord(V()[i], null, shift, av[i]);
         if (q) base.push(q);
       });
     }
@@ -607,8 +640,9 @@
   }
 
   /** 訂正關：只重練剛才答錯的字，不扣血、不計失敗。 */
-  function fixSet(ids, shift) {
-    return byErrWeight(ids).map(i => forWord(V()[i], null, shift)).filter(Boolean);
+  function fixSet(ids, shift, avoidKinds) {
+    const av = avoidKinds || {};
+    return byErrWeight(ids).map(i => forWord(V()[i], null, shift, av[i])).filter(Boolean);
   }
 
   /** 錯題加強關：從錯題本抽 n 個字，錯得越兇的越前面。 */
