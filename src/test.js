@@ -873,14 +873,14 @@ t('連勝加成有上限，不會無限膨脹', () => {
   assert(S.winStreakBonus() === 0, '沒連勝就不該有加成');
 });
 
-t('通關門檻是 95%，低於就不算過', () => {
-  assert(S.PASS_ACC === 0.95, '門檻改了記得同步說明文字');
+t('通關門檻是 90%，低於就不算過', () => {
+  assert(S.PASS_ACC === 0.90, '門檻改了記得同步說明文字');
   const p = S.profile;
   p.winStreak = 0; p.inventory = {};
-  S.recordStage(5, 'A', false, 0.94, 1);
-  assert(S.mapStat(5, 'A').cleared === false, '94% 不該算通過');
-  S.recordStage(5, 'A', true, 0.95, 1);
-  assert(S.mapStat(5, 'A').cleared === true, '95% 應該算通過');
+  S.recordStage(5, 'A', false, 0.89, 1);
+  assert(S.mapStat(5, 'A').cleared === false, '89% 不該算通過');
+  S.recordStage(5, 'A', true, 0.90, 1);
+  assert(S.mapStat(5, 'A').cleared === true, '90% 應該算通過');
 });
 
 console.log('\n--- 關卡紀錄（開始時間與使用時間）---');

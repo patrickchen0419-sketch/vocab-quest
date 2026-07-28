@@ -675,7 +675,7 @@
 
   // ---------- 闖關地圖：6 級 × A–Z ----------
   const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWYZ'.split('');   // 詞彙表沒有 X 開頭的字
-  const PASS_ACC = 0.95;                                   // 沒有 95% 就是沒通過（硬派設定）
+  const PASS_ACC = 0.90;                                   // 沒有 90% 就是沒通過
 
   let bucketCache = null;
   /** 每個 (級別, 字首) 的字表。只算一次。 */

@@ -454,7 +454,7 @@
     run = {
       cfg, qs: cfg.questions, idx: 0, hearts: cfg.hearts, maxHearts: cfg.hearts,
       combo: 0, bestCombo: 0, right: 0, pendingXp: 0, answers: [], attempt: (cfg.attempt || 1), inStage: true, paused: false,
-      xpCard: cfg.xpCard || 1, timeMul: cfg.timeMul || 1,
+      xpCard: cfg.xpCard || 1, timeMul: cfg.timeMul || 1, itemNote: cfg.itemNote || '',
       retries: cfg.retries || 0, t0: Date.now(), qt0: Date.now(), timer: null, locked: false,
     };
     if (!run.qs.length) { toast('這一關沒有題目，先做別的吧'); return home(); }
@@ -638,6 +638,7 @@
     render(`
       <div class="hud">
         <b>${esc(run.cfg.title)}</b>
+        ${run.itemNote ? `<span class="chip" style="color:var(--gold)">🧪 ${esc(run.itemNote)}</span>` : ''}
         <button class="btn sm ghost gear" data-act="gear" style="order:99">⚙</button>
         ${hearts()}
         <span class="combo">${run.combo >= 2 ? '本關連擊 ×' + run.combo + ' ✨' : ''}</span>
@@ -1055,8 +1056,8 @@
     const cfg = run.cfg, { lv, letter } = cfg.map;
     const graded = run.answers.filter(a => a.ok !== null);
     const acc = graded.length ? run.right / graded.length : 0;
-    // 通關門檻是 95%，星數就在 95% 以上再分級：全對 3 星、只錯一點 2 星
-    const stars = acc >= 1 ? 3 : acc >= .97 ? 2 : 1;
+    // 通關門檻是 90%，星數就在 90% 以上再分級：全對 3 星、95% 以上 2 星
+    const stars = acc >= 1 ? 3 : acc >= .95 ? 2 : 1;
     const passed = acc >= S.PASS_ACC;
 
     const streakBefore = S.winStreak();
@@ -1804,8 +1805,11 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function itemPicker() {
     const own = PRE_ITEMS.filter(it => S.owned(it.id));
     if (!own.length) {
-      return `<p class="tiny">目前沒有可以用在這一關的消耗品（護心符、沙漏、XP 卡）。
-        商店買得到，背包的合成台也做得出來。</p>`;
+      return `<div class="card itemcard" style="margin-top:14px">
+        <h3>🧪 這一關要用道具嗎？</h3>
+        <p class="tiny">目前沒有可以用在這一關的消耗品（護心符 ♥+1、大護心符 ♥+3、沙漏、大沙漏、雙倍／三倍 XP 卡）。
+          商店買得到，背包的合成台也做得出來；有了之後這裡就會出現勾選鈕，<b>勾了才會消耗</b>。</p>
+      </div>`;
     }
     let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
     own.forEach(it => {
@@ -1815,12 +1819,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       if (it.xp) xpCard = Math.max(xpCard, it.xp);
     });
     const any = own.some(it => useItems[it.id]);
-    return `<h3 style="margin-top:14px">🧪 這一關要用道具嗎？</h3>
+    return `<div class="card itemcard" style="margin-top:14px">
+      <h3>🧪 這一關要用道具嗎？<span class="tiny">${any ? '已選好，開始就會消耗' : '預設不用，點一下才會用'}</span></h3>
       <div class="pills">${own.map(it =>
-      `<button class="pill ${useItems[it.id] ? 'on' : ''}" data-useitem="${it.id}">${esc(it.short)}　<span class="tiny">×${S.inventory()[it.id]}</span></button>`).join('')}</div>
-      <p class="tiny">預設不使用，勾了才會消耗（同類型只會生效最強的一個）。
-        這一關：<b style="color:var(--red)">♥${hearts}</b>　時間 <b style="color:var(--blue)">×${timeMul}</b>　XP <b style="color:var(--gold)">×${xpCard}</b>
-        ${any ? '' : '　（目前不使用任何道具）'}</p>`;
+      `<button class="pill ${useItems[it.id] ? 'on' : ''}" data-useitem="${it.id}">${useItems[it.id] ? '✓ ' : ''}${esc(it.short)}　<span class="tiny">持有 ${S.inventory()[it.id]}</span></button>`).join('')}</div>
+      <p class="muted" style="margin-top:8px">這一關會是：<b style="color:var(--red)">♥${hearts}</b>　時間 <b style="color:var(--blue)">×${timeMul}</b>　XP <b style="color:var(--gold)">×${xpCard}</b>
+        ${any ? '' : '（目前不使用任何道具）'}</p>
+      <p class="tiny">勾了才會消耗，同類型只生效最強的一個；這一關結束就自動取消勾選。</p>
+    </div>`;
   }
 
   /** 進到字母關之後，先選這一次要練幾個字。 */
@@ -1835,9 +1841,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     render(`<div class="card">
       ${pageHead(`第 ${lv} 級 ・ ${letter}`, { back: true })}
       <p class="muted">這個字母在第 ${lv} 級共有 <b>${ids.length}</b> 個字，你已經學會 <b style="color:var(--ac)">${st.known}</b> 個。</p>
-      ${itemPicker()}
       <h3 style="margin-top:14px">這一次要練幾個字？</h3>
       <div class="btnrow">${btns}</div>
+      ${itemPicker()}
       ${bar('這一關的單字進度', st.known, st.total, `${st.known}/${st.total} 字`, 'g-lv' + lv)}
       ${(() => {
         const own = ids.filter(i => Q.hasSent(V()[i])).length;
@@ -1878,6 +1884,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (used.length) toast('這一關使用：' + used.join('、'));
     const go = () => runStage({
       title: `第 ${lv} 級 ・ ${letter} 關`,
+      itemNote: used.join('、'),                     // 關卡上方顯示這一關用了什麼道具
       questions: qs, hearts,
       map: { lv, letter, count: n }, timeMul, xpCard,
       // 重新挑戰時重新出題：答錯的字換題型再考，答對的字換掉

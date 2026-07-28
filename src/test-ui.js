@@ -565,6 +565,30 @@ t('道具預設不使用：沒勾就不會被吃掉', () => {
   r.inStage = false;
 });
 
+t('沒有道具時也要說明白「哪裡拿、怎麼用」', () => {
+  S.profile.inventory = {};
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  assert(has('這一關要用道具嗎'), '沒有道具區塊');
+  assert(has('勾了才會消耗'), '沒有說明勾選規則');
+  assert(has('商店') && has('合成台'), '沒有告訴使用者去哪拿');
+});
+
+t('用了道具時，關卡上方會顯示用了什麼', () => {
+  S.profile.inventory = { heart: 1 };
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  click('[data-useitem="heart"]');
+  assert(has('✓ 護心符'), '勾選後沒有打勾標示：' + txt().slice(0, 400));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 60) press(' ');
+  assert(has('🧪 護心符'), '關卡上方沒顯示使用中的道具：' + txt().slice(0, 400));
+  const r = window.__run(); if (r) r.inStage = false;
+});
+
 t('勾了才用：血量／時間／XP 倍率照勾選生效，用完就清空', () => {
   S.profile.inventory = { heart: 1, hourglass: 1, xp2: 1 };
   const baseHearts = S.diff().hearts;

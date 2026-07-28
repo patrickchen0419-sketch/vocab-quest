@@ -567,6 +567,10 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .btn.big-btn { font-size: 16px; padding: 13px 20px; }
 .tiny.gold, .gold { color: var(--gold); }
 
+/* 道具勾選卡：用邊框和底色把它從「說明文字」提升成「要決定的事」 */
+.card.itemcard { border-color: var(--purple); background: linear-gradient(160deg, #2a2140 0%, var(--card) 60%); }
+.card.itemcard .pill.on { background: var(--purple); color: #17062e; border-color: transparent; }
+
 /* ================= 蓋住的答案 ================= */
 .revealbtn {
   background: var(--card2); border: 1px dashed var(--line); color: var(--tx2);
