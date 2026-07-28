@@ -648,6 +648,10 @@
       </div>
       <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${submitHtml}</div>
       <div id="fb"></div>
+      ${keyBar(q.opts
+      ? [['next', '下一題'], ['speak', '發音'], ['pause', '暫停']]
+      : [['submit', '送出'], ['next', '下一題'], ['speak', '發音'], ['pause', '暫停']])}
+      ${q.opts ? '<p class="tiny" style="text-align:center">也可以直接按 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> 選答案</p>' : ''}
       ${run.attempt > 1 ? `<p class="tiny">第 ${run.attempt} 次挑戰這一關（前面的作答紀錄都有保留，正確率只採計第 1 次）</p>` : ''}
     `);
 
@@ -1728,6 +1732,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭ ${kbd('know')}</button>
       </div>
       ${memeTag('cards')}
+      ${keyBar([['card', k + 1 >= ids.length ? '開始闖關' : '下一個'], ['prev', '上一個'], ['know', '早就會了'], ['speak', '發音']])}
       <p class="tiny" style="text-align:center">看完這 ${ids.length} 個新字就開始闖關。
         按「早就會了」會把它當已會（不算今天的新字），但 3 天後複習還是會抽考它。</p>
     `);
@@ -1878,7 +1883,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       // 重新挑戰時重新出題：答錯的字換題型再考，答對的字換掉
       regen: info => Q.stageSet(lv, letter, n, shift, info),
     });
-    const fresh = [...new Set(qs.map(q => q.i).filter(i => i != null && !S.isSeen(i)))];
+    // 學習卡另外打散：卡片順序和考題順序不一樣，才不會變成「照順序背」
+    const fresh = Q.shuffle([...new Set(qs.map(q => q.i).filter(i => i != null && !S.isSeen(i)))]);
     if (fresh.length) {
       // back：學習卡階段按「先離開」要回到這個字母關的選單，而不是首頁
       window.__cards = { then: go, back: () => letterSetup(lv, letter) };
@@ -2610,6 +2616,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <h3 style="margin-top:16px">其他</h3>
       <label class="row"><input type="checkbox" ${c.timer ? 'checked' : ''} data-chk="timer">每題倒數計時</label>
       <label class="row"><input type="checkbox" ${c.instantFeedback ? 'checked' : ''} data-chk="instantFeedback">每題答完立刻對答案（預設關閉：整關結束才一次結算）</label>
+      <label class="row"><input type="checkbox" ${c.keyBar ? 'checked' : ''} data-chk="keyBar">在作答畫面顯示快速鍵提示條</label>
       <label class="row"><input type="checkbox" ${c.memes ? 'checked' : ''} data-chk="memes">顯示迷因台詞（讀累了看一句廢話，可關）</label>
       <label class="row"><input type="checkbox" ${c.sfx ? 'checked' : ''} data-chk="sfx">音效</label>
       <label class="row"><input type="checkbox" ${c.tts ? 'checked' : ''} data-chk="tts">單字發音</label>
@@ -2822,6 +2829,12 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   };
   const keyLabel = k => KEY_LABEL[k] || String(k || '').toUpperCase();
   const kbd = id => `<kbd>${esc(keyLabel(S.keyOf(id)))}</kbd>`;
+  /** 螢幕下方的快速鍵提示條：把「現在這個畫面可以按哪些鍵」直接寫出來。 */
+  function keyBar(items) {
+    if (!S.settings.keyBar) return '';
+    return `<div class="keybar">${items.map(x => `<span>${kbd(x[0])} ${esc(x[1])}</span>`).join('')}
+      <span class="tiny">鍵可以在設定頁改</span></div>`;
+  }
   let keyCapture = null;                 // 設定頁「改鍵」時，正在等哪個動作的按鍵
   const sameKey = (ev, id) => {
     const want = S.keyOf(id);
@@ -2875,9 +2888,13 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       }
       return;
     }
+    /* 「前進」這一族的鍵（下一題／學習卡下一個／結算主按鈕）互通：
+       按 Enter 或空白鍵都要能往前走。原本學習卡只吃空白鍵，按 Enter 沒反應，
+       那就會讓人覺得「快速鍵根本沒做」。 */
+    const advance = ev => sameKey(ev, 'card') || sameKey(ev, 'next') || sameKey(ev, 'primary');
     // 2) 學習卡
     if (document.querySelector('[data-act="nextCard"]')) {
-      if (sameKey(e, 'card')) { e.preventDefault(); return fire(document.querySelector('[data-act="nextCard"]')); }
+      if (advance(e)) { e.preventDefault(); return fire(document.querySelector('[data-act="nextCard"]')); }
       if (sameKey(e, 'prev')) { const b = document.querySelector('[data-act="prevCard"]'); if (b) { e.preventDefault(); return fire(b); } }
       if (sameKey(e, 'know')) { const b = document.querySelector('[data-act="knowCard"]'); if (b) { e.preventDefault(); return fire(b); } }
       if (sameKey(e, 'speak')) { const b = document.querySelector('[data-say]'); if (b) { e.preventDefault(); return say(b.dataset.say); } }
@@ -2889,7 +2906,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (inStage) {
       const q = run.qs[run.idx];
       const fb = $('#fb');
-      if (fb && fb.innerHTML && (sameKey(e, 'next') || sameKey(e, 'primary'))) {
+      if (fb && fb.innerHTML && advance(e)) {
         const nb = document.querySelector('[data-act="next"]');
         if (nb) { e.preventDefault(); return next(); }
       }
@@ -2906,7 +2923,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       return;
     }
     // 4) 其他畫面（結算、地圖、首頁…）：主鍵＝畫面上第一顆主要按鈕
-    if (sameKey(e, 'primary') || sameKey(e, 'next')) {
+    if (advance(e)) {
       const b = document.querySelector('.wrap .btn.primary') || document.querySelector('.wrap .btn.gold');
       if (b && !b.disabled) { e.preventDefault(); return fire(b); }
     }

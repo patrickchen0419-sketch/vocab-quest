@@ -46,6 +46,11 @@
     for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; }
     return a;
   }
+  /** 就地打散（要保留同一個陣列參照時用）。 */
+  function shuffleInPlace(a) {
+    for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; }
+    return a;
+  }
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
   /** 兩個中文釋義是否太像（避免出現兩個都對的選項） */
@@ -649,6 +654,9 @@
       }
     }
     if (gramSlots > 0) extras.push(...grammarForStage(gramSlots, pick_, lv));
+    /* 打散單字題的順序：學習卡是照 pick_ 的順序一張張看的，
+       如果考題也照同一個順序出，等於在考「你還記得剛剛第幾張」而不是「你認得這個字」。 */
+    shuffleInPlace(base);
     // 句子名額沒填滿（這一關與同字首都沒例句可用）→ 補這一關自己的單字題，
     // 寧可多考本關的字，也不要拉一堆別的字母進來。
     const need = n - base.length - extras.length;

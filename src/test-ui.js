@@ -1194,6 +1194,38 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   if (r) r.inStage = false;
 });
 
+console.log('\n--- 出題順序 ---');
+t('考題順序不會跟學習卡的順序一樣', () => {
+  const s = S.load();
+  let same = 0, rounds = 0;
+  for (let k = 0; k < 12; k++) {
+    s.words = {};                                   // 每輪都當成全新的字，才會出學習卡
+    S.setDifficulty('easy');
+    goHome();
+    click('[data-maplv="4"]');
+    fire('click', doc.querySelector('[data-mapletter]'));
+    const btns = doc.querySelectorAll('[data-startstage]');
+    fire('click', btns[Math.min(1, btns.length - 1)]);   // 挑題數多一點的
+    if (!has('先認識新單字')) continue;
+    const cards = window.__cards.ids.slice();
+    let guard = 0;
+    while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) press(' ');
+    const r = window.__run();
+    if (!r || !r.qs) continue;
+    // 考題裡「單字第一次出現」的順序
+    const seen = [], asked = [];
+    r.qs.forEach(q => { if (q.i != null && !seen.includes(q.i)) { seen.push(q.i); asked.push(q.i); } });
+    if (cards.length >= 4 && asked.length >= 4) {
+      rounds++;
+      if (cards.slice(0, 4).join() === asked.slice(0, 4).join()) same++;
+    }
+    r.inStage = false;
+  }
+  assert(rounds >= 5, '樣本太少：' + rounds);
+  assert(same <= 1, `${rounds} 輪裡有 ${same} 輪的考題順序跟學習卡完全一樣`);
+  s.words = {};
+});
+
 console.log('\n--- 題目要求要夠明顯 ---');
 t('每一種題型都有醒目的「這題要做什麼」橫幅', () => {
   // 直接生題目、走 drawQuestion 的渲染路徑，逐一檢查
@@ -1380,12 +1412,12 @@ t('設定頁可以改鍵，改完立刻生效', () => {
   click('[data-go="settings"]');
   assert(has('鍵盤快速鍵'), '設定頁沒有鍵盤區');
   assert(doc.querySelectorAll('[data-keyset]').length === S.KEY_ACTS.length, '改鍵按鈕數不對');
-  click('[data-keyset="card"]');
+  // 用「早就會了」來驗證改鍵（它不屬於前進那一族，測起來最乾淨）
+  click('[data-keyset="know"]');
   assert(has('請按一個鍵'), '沒進入等待按鍵狀態');
-  press('Shift');                                  // 把「學習卡下一個」改成 Shift
-  assert(S.keyOf('card') === 'Shift', '沒改成 Shift：' + S.keyOf('card'));
-  assert(has('Shift'), '設定頁沒顯示新的鍵');
-  // 實際去學習卡驗證 Shift 有效、空白鍵失效
+  press('K');                                      // 把「早就會了」從 Delete 改成 K
+  assert(S.keyOf('know') === 'K', '沒改成 K：' + S.keyOf('know'));
+  assert(has('K'), '設定頁沒顯示新的鍵');
   const s = S.load();
   s.words = {};
   goHome();
@@ -1393,17 +1425,17 @@ t('設定頁可以改鍵，改完立刻生效', () => {
   fire('click', doc.querySelector('[data-mapletter]'));
   fire('click', doc.querySelector('[data-startstage]'));
   if (has('先認識新單字')) {
-    const k0 = window.__cards.k;
-    press(' ');
-    assert(window.__cards.k === k0, '改鍵之後空白鍵不該再前進');
-    press('Shift');
-    assert(window.__cards.k === k0 + 1, 'Shift 沒有前進');
+    const id0 = window.__cards.ids[window.__cards.k];
+    press('Delete');                               // 舊的鍵應該失效
+    assert(!S.load().words[id0], '改鍵之後 Delete 不該再生效');
+    press('K');
+    assert(S.load().words[id0] && S.load().words[id0].k === 1, '新的鍵 K 沒生效');
   }
   const r = window.__run(); if (r) r.inStage = false;
   goHome();
   click('[data-go="settings"]');
   click('[data-act="resetKeys"]');
-  assert(S.keyOf('card') === ' ', '還原預設失敗：' + JSON.stringify(S.keyOf('card')));
+  assert(S.keyOf('know') === 'Delete', '還原預設失敗：' + JSON.stringify(S.keyOf('know')));
 });
 
 t('結算畫面按主鍵就能繼續（不用找滑鼠）', () => {
