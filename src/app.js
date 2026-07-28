@@ -95,19 +95,43 @@
   let voices = [];
   function loadVoices() { voices = (window.speechSynthesis && speechSynthesis.getVoices()) || []; }
   if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-  function say(text) {
+  /** 挑最好的英語聲音：優先 Windows 11 的 Natural／Neural 語音，再來才是一般 en-US。 */
+  function pickVoice() {
+    const en = voices.filter(v => /^en/i.test(v.lang));
+    if (!en.length) return null;
+    const score = v => {
+      const n = (v.name || '') + ' ' + (v.lang || '');
+      let s = 0;
+      if (/natural|neural|online/i.test(n)) s += 6;      // 音質明顯較好
+      if (/US|United States/i.test(n)) s += 3;
+      if (/Aria|Jenny|Guy|Michelle|Zira|David/i.test(n)) s += 2;
+      if (/eSpeak|Compact/i.test(n)) s -= 4;             // 機械音，rice/raise 這種真的分不出來
+      return s;
+    };
+    return en.slice().sort((a, b) => score(b) - score(a))[0];
+  }
+
+  function say(text, opt) {
     if (!S.settings.tts || !window.speechSynthesis || !text) return;
+    const o = opt || {};
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      const en = voices.filter(v => /^en/i.test(v.lang));
-      u.voice = en.find(v => /US|United States/i.test(v.name + v.lang)) || en[0] || null;
+      u.voice = pickVoice();
       u.lang = (u.voice && u.voice.lang) || 'en-US';
       // 預設放慢：學生要聽清楚每個音節，不是聽母語者的正常語速
       // 設定頁的滑桿存的是百分比（75 = 0.75 倍速）
       const raw = S.settings.speechRate;
-      u.rate = Math.max(0.5, Math.min(1.2, (raw > 2 ? raw / 100 : raw) || 0.75));
+      const base = Math.max(0.5, Math.min(1.2, (raw > 2 ? raw / 100 : raw) || 0.75));
+      u.rate = Math.max(0.3, o.rate ? o.rate : base);
+      u.pitch = 1; u.volume = 1;
       speechSynthesis.speak(u);
+      // 聽力題可以自動再唸一次（rice / raise 這種只聽一次真的分不出來）
+      if (o.twice) {
+        const u2 = new SpeechSynthesisUtterance(text);
+        u2.voice = u.voice; u2.lang = u.lang; u2.rate = u.rate; u2.pitch = 1; u2.volume = 1;
+        setTimeout(() => { try { speechSynthesis.speak(u2); } catch (e) { /* 忽略 */ } }, 900);
+      }
     } catch (e) { /* 沒有語音引擎就安靜略過 */ }
   }
 
@@ -521,6 +545,10 @@
     const q = run.qs[run.idx];
     if (!q) return finishStage();
     run.locked = false; run.qt0 = Date.now();
+    /* 新題目剛畫出來的前 250 毫秒不接受作答。
+       原因：上一題答完會在 260ms 後自動換題，手速快的人第二下點擊會落在新題目上，
+       等於「還沒看到題目就被算答錯」——使用者的體感就是「我明明選了正確答案卻給我錯」。 */
+    run.drawnAt = Date.now();
     const p = q.prompt;
     const useTimer = S.settings.timer && limitOf(q) > 0;
     let body = '';
@@ -539,10 +567,17 @@
     } else if (p.type === 'zh') {
       body = `${lvTag}<div class="qword zh">${esc(p.zh)}</div><p class="muted" style="margin-top:10px">選出正確的英文單字</p>`;
     } else if (p.type === 'listen') {
+      /* 聽力題最容易吵架的地方：TTS 把 rice / raise 唸得幾乎一樣。
+         對策：自動唸兩次、提供「更慢」按鈕、真的聽不出來還能看音標（音標不會直接告訴你意思）。 */
       body = `${lvTag}<div style="font-size:52px">🔊</div>
-        <button class="btn" data-say="${esc(p.speak)}" style="margin-top:8px">再聽一次</button>
-        <p class="muted" style="margin-top:12px">聽發音，選出正確答案</p>`;
-      setTimeout(() => say(p.speak), 250);
+        <div class="btnrow" style="justify-content:center;margin-top:8px">
+          <button class="btn" data-say="${esc(p.speak)}">🔊 再聽一次</button>
+          <button class="btn" data-slow="${esc(p.speak)}">🐢 慢速播放</button>
+          ${p.ph ? `<button class="btn ghost" data-act="showPh">看音標</button>` : ''}
+        </div>
+        <div class="qph" id="phhint" style="margin-top:10px;visibility:hidden">/${esc(p.ph || '')}/</div>
+        <p class="muted" style="margin-top:8px">聽發音，選出正確答案（會自動唸兩次）</p>`;
+      setTimeout(() => say(p.speak, { twice: true }), 250);
     } else if (p.type === 'spell') {
       body = `${lvTag}<div class="qword zh">${esc(p.zh)}</div>
         <div class="qph" style="letter-spacing:5px;font-size:22px;margin-top:10px">${esc(p.hint)}</div>
@@ -737,8 +772,14 @@
     answerQ(q, val);
   }
 
+  // 換題後的防誤觸時間；測試會把它設成 0（另有專門測試驗證這個保護真的有效）
+  const guardMs = () => (window.__guardMs != null ? window.__guardMs : 250);
+  function tooSoon() { return run && run.drawnAt && (Date.now() - run.drawnAt) < guardMs(); }
+
   function answerQ(q, given, timeout) {
     if (run.locked) return;
+    // 防止「上一題的第二下點擊」誤答新題（逾時判定不受影響）
+    if (!timeout && tooSoon()) return;
     run.locked = true;
     clearInterval(run.timer);
     const ms = Date.now() - run.qt0;
@@ -918,6 +959,30 @@
     const canRevive = S.owned('revive') && !run.revived;
     if (!canRevive) recordFail();
     sfx.dead();
+    /* 掛掉也要看得到哪裡錯 —— 先把逐題檢討畫在後面，覆蓋層關掉就看得到，
+       不然血量歸零等於「錯了什麼都不知道」，那才是最虧的。 */
+    const graded = run.answers.filter(a => a.ok !== null);
+    render(`<div class="card sheet" style="text-align:center">
+      <div class="big" style="color:var(--red)">GAME OVER</div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="stat ok"><b>${run.right}</b><span>答對</span></div>
+        <div class="stat no"><b>${graded.length - run.right}</b><span>答錯</span></div>
+        <div class="stat gold"><b>×${run.bestCombo}</b><span>本關最高連擊</span></div>
+        <div class="stat"><b>${run.idx + 1}/${run.qs.length}</b><span>打到第幾題</span></div>
+      </div>
+      <p class="tiny">這一關的 XP 與星數不算，但<b>作答紀錄都留著</b>，答錯的字已排進複習。</p>
+      <div class="btnrow" style="justify-content:center;margin-top:12px">
+        <button class="btn primary" data-act="retryMapStage">再挑戰一次</button>
+        ${run.cfg.map ? '<button class="btn gold" data-act="fixWrong">✏ 訂正錯的字</button>' : ''}
+        <button class="btn ghost" data-act="backToMap">回關卡地圖</button>
+        <button class="btn ghost" data-go="home">回首頁</button>
+      </div>
+    </div>
+    <div class="card"><h3>逐題檢討（答錯的排前面）</h3>${reviewList()}</div>`);
+    // 訂正／再挑戰要用到的資料（跟通關結算同一套）
+    window.__lastMap = run.cfg.map ? { lv: run.cfg.map.lv, letter: run.cfg.map.letter, count: run.cfg.map.count } : window.__lastMap;
+    window.__lastAttempt = attemptInfo();
+    window.__wrongIds = [...new Set(run.answers.filter(a => a.ok === false && a.q.i != null).map(a => a.q.i))];
     overlay(`<div class="big" style="color:var(--red)">GAME OVER</div>
       ${memeTag('gameover')}
       <p class="muted">血量用完了。這一關累積的 <b>${run.pendingXp} XP 全部作廢</b>，星數不給、連擊歸零，要重新挑戰。</p>
@@ -926,11 +991,13 @@
         ${canRevive ? `<button class="btn purple big-btn" data-close="revive">💎 用復活石續命（持有 ${S.inventory().revive}）</button>` : ''}
         <button class="btn primary" data-close="retry">重新挑戰這一關</button>
         ${run.cfg.map ? '<button class="btn gold" data-close="fix">訂正錯的字</button>' : ''}
+        <button class="btn" data-close="review">看逐題檢討</button>
         <button class="btn ghost" data-close="home">先回首頁</button>
       </div>
       ${canRevive ? '<p class="tiny">復活石：血量回 1 顆，從下一題接著打，累積的 XP 保留。每關只能用一次。</p>' : ''}`, act => {
         if (act === 'revive') return reviveStage();
         recordFail();                            // 不復活 → 這一關正式算失敗
+        if (act === 'review') return;            // 關掉視窗，後面就是逐題檢討
         if (act === 'retry') return restartStage();
         if (act === 'fix') {
           const ids = [...new Set(run.answers.filter(a2 => a2.ok === false && a2.q.i != null).map(a2 => a2.q.i))];
@@ -1020,8 +1087,10 @@
       stars, combo: run.bestCombo, retries: run.retries,
       count: graded.length, diff: S.diff().id,
     }) : null;
+    // 寶箱先存進背包：當場不想開也沒關係，之後可以在背包一次全開
+    const chestId = passed ? S.addChest(tier, `第 ${lv} 級 ${letter} 關`) : null;
     window.__chest = passed ? {
-      tier, lv, letter, count: graded.length,
+      id: chestId, tier, lv, letter, count: graded.length,
       ids: [...new Set(run.answers.map(a => a.q.i).filter(i => i != null))],
       // 剛剛考過什麼（字 + 題型），加碼題要避開這些組合，不要重複考一樣的東西
       asked: run.answers.filter(a => a.q.i != null).map(a => ({ i: a.q.i, kind: a.q.kind })),
@@ -1109,6 +1178,7 @@
       })()}
       </div>
       ${c.bonusUsed ? '' : memeTag('bonus')}
+      <p class="tiny">不想現在開也可以 —— 寶箱<b>已經收進背包</b>了，之後可以在背包一次全開（🎒 目前存了 ${S.chestBagSummary().total} 箱）。</p>
       <p class="tiny">加碼題只出<b>這一關範圍內、剛剛沒考過的字</b>（沒學過的優先），題數是這一關的 ⅓（3～8 題）。
         全對升兩級、答對六成以上升一級，金寶箱還能升到 🌈 彩虹。</p>
     </div>`;
@@ -1153,15 +1223,55 @@
       <div class="chestpick big">${[0, 1, 2].map(k =>
       `<button class="chestbtn ${t.cls}" data-openchest="${k}">
           <span class="cbicon">${t.icon}</span><span class="cbnum">箱 ${k + 1}</span></button>`).join('')}</div>
+      <div class="btnrow" style="justify-content:center;margin-top:8px">
+        <button class="btn ghost" data-act="chestLater">先收進背包，之後再開</button>
+      </div>
       <p class="tiny" style="text-align:center;margin-top:18px">稀有獎品：💎 金鑽石、🔑 寶箱鑰匙、復活石、三倍 XP 卡、🪙 金幣大獎、🎀 神秘禮物（機率很低）</p>
     </div>`);
+  }
+
+  /** 一次全開：全螢幕演出，先給總計，再列出每一箱開到什麼。 */
+  function openAllChests() {
+    const r = S.openAllStored();
+    if (!r) return toast('背包裡沒有寶箱');
+    sfx.clear();
+    if (r.total.special) setTimeout(() => sfx.lvl(), 350);
+    const gifts = S.claimLevelUps();
+    // 同樣的獎品合併顯示，不然開 20 箱會洗版
+    const merged = {};
+    r.total.drops.forEach(d => { merged[d.label] = (merged[d.label] || 0) + 1; });
+    render(`<div class="chestscene open c-gold">
+      <div class="csglow big"></div>
+      <div class="cshead">
+        <div class="chesticon huge pop">🎉</div>
+        <div class="big" style="margin-top:4px">開了 ${r.count} 箱</div>
+        ${r.total.special ? '<p class="tiny" style="color:var(--gold)">✨ 其中有稀有獎品！</p>' : ''}
+        ${memeTag('chest', 'gold')}
+      </div>
+      <div class="lootbig">
+        <div class="loot coin big">🪙 +${r.total.coin}</div>
+        <div class="loot xp big">✨ +${r.total.xp} XP</div>
+        ${Object.keys(merged).map((label, k) =>
+      `<div class="loot item big" style="animation-delay:${0.08 * (k + 1)}s">${esc(label)}${merged[label] > 1 ? ` ×${merged[label]}` : ''}</div>`).join('')}
+      </div>
+      <div class="tblwrap" style="max-width:520px;margin:18px auto 0">
+        <table class="rep log"><tr><th>寶箱</th><th>金幣</th><th>XP</th><th>獎品</th></tr>
+        ${r.results.map(x => `<tr><td>${S.CHEST[x.tier].icon} ${esc(x.name)}</td><td>+${x.coin}</td><td>+${x.xp}</td>
+          <td class="tiny">${(x.drops || []).map(d => esc(d.label)).join('、')}</td></tr>`).join('')}
+        </table>
+      </div>
+      <div class="btnrow" style="justify-content:center;margin-top:20px">
+        <button class="btn primary big-btn" data-go="bag">收下獎品</button>
+      </div>
+    </div>`);
+    showLevelUps(gifts);
   }
 
   /** 全螢幕開箱演出：箱子放大 → 一項一項亮出獎品。 */
   function revealChest(pick) {
     const c = window.__chest;
     if (!c || c.opened) return;
-    const r = S.openChest(c.tier);
+    const r = c.id ? (S.openStored(c.id) || S.openChest(c.tier)) : S.openChest(c.tier);
     c.opened = true; c.reward = r; c.tier = r.tier;
     const t = S.CHEST[r.tier];
     sfx.clear();
@@ -1240,7 +1350,11 @@
     const ups = total && right === total ? 2 : right >= Math.ceil(total * 0.6) ? 1 : 0;
     let tier = c ? c.tier : null;
     for (let k = 0; k < ups && c; k++) tier = S.upgradeChest(tier, true);
-    if (c) c.tier = tier;
+    if (c) {
+      c.tier = tier;
+      const row = S.chestBag().find(x => x.id === c.id);   // 背包裡那一箱同步升級
+      if (row) { row.tier = tier; S.save(true); }
+    }
     const bonusXp = run.pendingXp + (ups === 2 ? 60 : ups === 1 ? 25 : 0);
     closeRun({ passed: ups > 0, xp: bonusXp });
     S.addXp(bonusXp);
@@ -1292,7 +1406,10 @@
     showLevelUps(gifts);
   }
 
-  /** 關卡結算：逐題檢討清單（答錯的排前面，附正確答案與說明）。 */
+  /* 逐題檢討：答案預設「蓋住」，按了才顯示。
+     這樣可以先自己想一次（回想才會記住），而不是一眼看到答案就滑過去。 */
+  const hide = (text, key) => `<button class="revealbtn" data-reveal="${esc(key)}" data-ans="${esc(text)}">看答案</button>`;
+
   function reviewList() {
     const rows = run.answers.map((a, n) => {
       const q = a.q, w = q.i != null ? V()[q.i] : null;
@@ -1307,7 +1424,8 @@
         html: `<div style="border-bottom:1px solid var(--line);padding:10px 0">
           <div><b style="color:${color}">${mark}</b> ${w ? `<b>${esc(w.w)}</b> <span class="tiny">${esc(w.p)} L${w.lv}</span>` : `<b>${esc(window.GRAMMAR_TITLES[q.gid] || '文法')}</b>`}
             ${a.gained ? `<span class="tiny" style="color:var(--ac);float:right">+${a.gained} XP</span>` : ''}</div>
-          ${a.ok === false ? `<div class="tiny">你的答案：<span style="color:var(--red)">${esc(yours)}</span>　正確：<span style="color:var(--ac)">${esc(right)}</span></div>` : ''}
+          ${a.ok === false ? `<div class="tiny">你的答案：<span style="color:var(--red)">${esc(yours)}</span>　正確：${hide(right, 'r' + n)}</div>` : ''}
+          ${a.ok === true ? `<div class="tiny">正確答案：${hide(right, 'r' + n)}</div>` : ''}
           ${a.ok === null ? `<div class="tiny">你寫的：${esc(yours)}</div>` : ''}
           ${a.ok === false && why ? `<div class="tiny" style="color:var(--tx2);margin-top:4px">${why}</div>` : ''}
           ${a.ok === false && trap ? `<div class="tiny" style="color:var(--gold)">⚠ ${esc(trap)}</div>` : ''}
@@ -1315,7 +1433,10 @@
       };
     });
     rows.sort((a, b) => (a.ok === false ? 0 : a.ok === null ? 1 : 2) - (b.ok === false ? 0 : b.ok === null ? 1 : 2));
-    return rows.map(r => r.html).join('');
+    return `<div class="btnrow" style="margin-bottom:6px">
+        <button class="btn sm ghost" data-act="revealAll">👁 全部顯示答案</button>
+        <span class="tiny">答案預設蓋住 —— 先自己回想一次，記得比較牢。</span>
+      </div>${rows.map(r => r.html).join('')}`;
   }
 
   function finishStage() {
@@ -1652,9 +1773,45 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     </div>`);
   }
 
+  /* 開關前可以選用的消耗品（刪去法與復活石是關卡中手動用，不在這裡）。
+     預設一個都不用 —— 道具很貴，不該因為「持有」就被自動吃掉。 */
+  const PRE_ITEMS = [
+    { id: 'bigheart', short: '大護心符 ♥+3', hearts: 3 },
+    { id: 'heart', short: '護心符 ♥+1', hearts: 1 },
+    { id: 'hourglass2', short: '大沙漏 時間×2', time: 2 },
+    { id: 'hourglass', short: '沙漏 時間+50%', time: 1.5 },
+    { id: 'xp3', short: '三倍 XP 卡', xp: 3 },
+    { id: 'xp2', short: '雙倍 XP 卡', xp: 2 },
+  ];
+  let useItems = {};                 // 這一關要用哪些道具（勾選狀態）
+
+  /** 選字數畫面上的道具勾選區；沒有任何消耗品就不顯示。 */
+  function itemPicker() {
+    const own = PRE_ITEMS.filter(it => S.owned(it.id));
+    if (!own.length) {
+      return `<p class="tiny">目前沒有可以用在這一關的消耗品（護心符、沙漏、XP 卡）。
+        商店買得到，背包的合成台也做得出來。</p>`;
+    }
+    let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
+    own.forEach(it => {
+      if (!useItems[it.id]) return;
+      if (it.hearts) hearts += it.hearts;
+      if (it.time) timeMul = Math.max(timeMul, it.time);
+      if (it.xp) xpCard = Math.max(xpCard, it.xp);
+    });
+    const any = own.some(it => useItems[it.id]);
+    return `<h3 style="margin-top:14px">🧪 這一關要用道具嗎？</h3>
+      <div class="pills">${own.map(it =>
+      `<button class="pill ${useItems[it.id] ? 'on' : ''}" data-useitem="${it.id}">${esc(it.short)}　<span class="tiny">×${S.inventory()[it.id]}</span></button>`).join('')}</div>
+      <p class="tiny">預設不使用，勾了才會消耗（同類型只會生效最強的一個）。
+        這一關：<b style="color:var(--red)">♥${hearts}</b>　時間 <b style="color:var(--blue)">×${timeMul}</b>　XP <b style="color:var(--gold)">×${xpCard}</b>
+        ${any ? '' : '　（目前不使用任何道具）'}</p>`;
+  }
+
   /** 進到字母關之後，先選這一次要練幾個字。 */
   function letterSetup(lv, letter) {
     setBack([home, () => mapLetters(lv)]);
+    window.__lastLetter = { lv, letter };          // 勾選道具後要重繪這個畫面
     const ids = S.bucket(lv, letter);
     const st = S.mapStat(lv, letter);
     const opts = [5, 10, 15, 20, 30].filter(n => n < ids.length).concat([ids.length]);
@@ -1663,6 +1820,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     render(`<div class="card">
       ${pageHead(`第 ${lv} 級 ・ ${letter}`, { back: true })}
       <p class="muted">這個字母在第 ${lv} 級共有 <b>${ids.length}</b> 個字，你已經學會 <b style="color:var(--ac)">${st.known}</b> 個。</p>
+      ${itemPicker()}
       <h3 style="margin-top:14px">這一次要練幾個字？</h3>
       <div class="btnrow">${btns}</div>
       ${bar('這一關的單字進度', st.known, st.total, `${st.known}/${st.total} 字`, 'g-lv' + lv)}
@@ -1690,15 +1848,19 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const qs = Q.stageSet(lv, letter, n, shift, opts);
     if (!qs.length) { toast('這一關沒有字'); return letterSetup(lv, letter); }
     // 開關前自動用掉身上的加成道具
+    // 道具改成「這一關要不要用」自己勾（在選字數畫面勾選），不再自動吃掉
     const used = [];
     let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
-    if (S.owned('bigheart') && S.consume('bigheart')) { hearts += 3; used.push('大護心符 ♥+3'); }
-    else if (S.owned('heart') && S.consume('heart')) { hearts += 1; used.push('護心符 ♥+1'); }
-    if (S.owned('hourglass2') && S.consume('hourglass2')) { timeMul = 2; used.push('大沙漏 時間×2'); }
-    else if (S.owned('hourglass') && S.consume('hourglass')) { timeMul = 1.5; used.push('沙漏 時間+50%'); }
-    if (S.owned('xp3') && S.consume('xp3')) { xpCard = 3; used.push('三倍 XP 卡'); }
-    else if (S.owned('xp2') && S.consume('xp2')) { xpCard = 2; used.push('雙倍 XP 卡'); }
-    if (used.length) toast('已使用：' + used.join('、'));
+    PRE_ITEMS.forEach(it => {
+      if (!useItems[it.id] || !S.owned(it.id)) return;
+      if (!S.consume(it.id)) return;
+      if (it.hearts) hearts += it.hearts;
+      if (it.time) timeMul = Math.max(timeMul, it.time);
+      if (it.xp) xpCard = Math.max(xpCard, it.xp);
+      used.push(it.short);
+    });
+    useItems = {};                                   // 用過就清空，不會被下一關偷吃
+    if (used.length) toast('這一關使用：' + used.join('、'));
     const go = () => runStage({
       title: `第 ${lv} 級 ・ ${letter} 關`,
       questions: qs, hearts,
@@ -1781,7 +1943,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <b>${esc(it.name)}</b>
       <span class="tiny">${esc(it.desc)}</span>
       <div class="ifoot">
-        ${have ? `<span class="tiny" style="color:var(--ac)">持有 ${have}</span>`
+        ${/* 只能有一個的東西（主題／稱號／夥伴／護符）只顯示「已擁有」，不顯示數量 */''}
+        ${have ? `<span class="tiny" style="color:var(--ac)">${S.isUnique(it) ? '已擁有' : `持有 ${have}`}</span>`
         : deal ? `<span class="tiny" style="text-decoration:line-through;color:var(--tx3)">🪙 ${it.cost}</span>` : '<span></span>'}
         ${btn}
       </div>
@@ -2007,10 +2170,28 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     }).join('');
 
     const keys = S.matCount('key');
+    const cb = S.chestBagSummary();
     render(`<div class="card">
       ${pageHead(`背包　<span class="chip coin">🪙 ${S.coins()}</span>`, { back: true })}
       <p class="muted">通關會掉寶石與素材（級別越高、星數越高掉得越好），拿到合成台換道具。</p>
     </div>
+
+    ${cb.total ? `<div class="card chestcard">
+      <h3>🎁 還沒開的寶箱 <span class="tiny">${cb.total} 箱</span></h3>
+      <div class="chestrow" style="flex-wrap:wrap">
+        ${S.CHEST_ORDER.filter(t => cb.byTier[t]).map(t =>
+      `<div class="matbox"><span class="chesticon ${S.CHEST[t].cls}" style="font-size:34px">${S.CHEST[t].icon}</span>
+           <b>${esc(S.CHEST[t].name)}</b><span class="mnum">×${cb.byTier[t]}</span></div>`).join('')}
+      </div>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="btn gold big-btn" data-act="openAllChests">🎉 一次全開（${cb.total} 箱）</button>
+        <button class="btn" data-act="openOneChest">開一箱（最舊的）</button>
+      </div>
+      <p class="tiny">通關時不想馬上開的寶箱都會存到這裡，不會消失也不會過期。</p>
+    </div>` : `<div class="card">
+      <h3>🎁 還沒開的寶箱</h3>
+      <p class="tiny">目前沒有存起來的寶箱。通關拿到寶箱時可以選「先收進背包」，之後在這裡一次全開。</p>
+    </div>`}
 
     <div class="card">
       <h3>💠 素材</h3>
@@ -2043,7 +2224,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         return `<div class="item ${r.cls} ${on ? 'equipped' : ''}">
           <div class="ihead"><span class="iicon">${KIND_ICON[x.kind]}</span><span class="rtag">${r.name}</span></div>
           <b>${esc(x.name)}</b><span class="tiny">${esc(x.desc)}</span>
-          <div class="ifoot"><span class="tiny">${x.kind === 'auto' ? '被動生效' : ''}</span>
+          <div class="ifoot"><span class="tiny">${x.kind === 'auto' ? '已擁有・被動生效' : '已擁有'}</span>
             ${equipable ? `<button class="btn sm ${on ? 'primary' : ''}" data-equip="${x.id}">${on ? '使用中' : '使用'}</button>` : ''}</div>
         </div>`;
       }).join('')}</div>` : '<p class="tiny">還沒有收藏品。商店的主題、稱號、夥伴會收在這裡。</p>'}
@@ -2471,6 +2652,15 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       S.equip(eq.dataset.equip); applyTheme();
       return inBag ? bag() : shop();
     }
+    const rv = t.closest('[data-reveal]');
+    if (rv) { rv.outerHTML = `<span class="revealed">${rv.dataset.ans}</span>`; return; }
+    const ui = t.closest('[data-useitem]');
+    if (ui) {
+      const id = ui.dataset.useitem;
+      useItems[id] ? delete useItems[id] : (useItems[id] = true);
+      const m = window.__lastLetter;
+      return m ? letterSetup(m.lv, m.letter) : home();
+    }
     const ks = t.closest('[data-keyset]');
     if (ks) { keyCapture = ks.dataset.keyset; return settings(); }
     const cr = t.closest('[data-craft]');
@@ -2494,6 +2684,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (mst) { const [lv, L, c] = mst.dataset.mapstage.split(':'); return startMapStage(+lv, L, +c); }
     const sayEl = t.closest('[data-say]');
     if (sayEl) return say(sayEl.dataset.say);
+    const slowEl = t.closest('[data-slow]');
+    if (slowEl) return say(slowEl.dataset.slow, { rate: 0.45, twice: true });   // 慢速再唸兩次
     const opt = t.closest('[data-opt]');
     if (opt && !opt.disabled) return answerQ(run.qs[run.idx], +opt.dataset.opt);
     const tile = t.closest('[data-tile]');
@@ -2763,17 +2955,40 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'sweepSubmit') return sweepCheck();
     if (a === 'sweepAllNo') { sw.batch.forEach((w, k) => sw.off.add(k)); return sweepCheck(); }
     if (a === 'sweepEnd') { clearInterval(window.__swTimer); return home(); }
+    if (a === 'showPh') {                       // 聽力題：真的聽不出來就看音標（不會直接告訴你意思）
+      const el = $('#phhint');
+      if (el) { el.style.visibility = 'visible'; el.style.color = 'var(--gold)'; }
+      return;
+    }
+    if (a === 'revealAll') {
+      document.querySelectorAll('[data-reveal]').forEach(b => {
+        b.outerHTML = `<span class="revealed">${b.dataset.ans}</span>`;
+      });
+      return;
+    }
     if (a === 'resetKeys') { S.resetKeys(); keyCapture = null; toast('快速鍵已還原成預設'); return settings(); }
     if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
     if (a === 'useKey') {
       if (S.matCount('key') < 1) return toast('沒有鑰匙');
       // 鑰匙箱走同一套全螢幕演出，收下後回背包
-      window.__chest = { tier: 'silver', opened: false, bonusUsed: true, fromKey: true };
-      window.__resultHtml = null;
       S.addMat('key', -1);
+      window.__chest = { id: S.addChest('silver', '寶箱鑰匙'), tier: 'silver', opened: false, bonusUsed: true, fromKey: true };
+      window.__resultHtml = null;
       return openChestFlow();
     }
+    if (a === 'chestLater') {                       // 全螢幕選箱畫面：先收起來
+      toast('寶箱已收進背包，之後可以一次全開');
+      return backFromChest();
+    }
+    if (a === 'openOneChest') {
+      const bag = S.chestBag();
+      if (!bag.length) return toast('背包裡沒有寶箱');
+      window.__chest = { id: bag[0].id, tier: bag[0].tier, opened: false, bonusUsed: true, fromKey: true };
+      window.__resultHtml = null;
+      return openChestFlow();
+    }
+    if (a === 'openAllChests') return openAllChests();
     if (a === 'openChest') return openChestFlow();
     if (a === 'chestDone') {
       const g = window.__chestGifts || [];

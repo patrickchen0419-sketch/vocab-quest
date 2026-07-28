@@ -122,16 +122,38 @@
       w.w, d.map(x => x.w), `${w.w} ${w.p} ${w.tr}`);
   }
 
-  function q_listen(w) {
-    // 有易混淆同伴時考「聽音辨字」，否則考「聽音辨義」
-    const cf = (w.cf || []).map(j => V()[j]).filter(x => x && x.tr);
-    if (cf.length >= 3) {
-      return mc(w, 'listen', { type: 'listen', speak: base(w.w), lv: w.lv },
-        w.w, shuffle(cf).slice(0, 3).map(x => x.w), `${w.w} = ${w.tr}`);
+  /* 兩個字的音標差多少（簡化版編輯距離，只算到 3 就停）。
+     用途：聽力題不能拿「發音幾乎一樣」的字當選項 —— 合成語音把 rice /raɪs/ 與
+     raise /reɪz/ 唸得幾乎相同，那題就變成猜猜看，不是聽力測驗。 */
+  function phDist(a, b) {
+    a = String(a || '').replace(/[ˈˌ.\s]/g, '');
+    b = String(b || '').replace(/[ˈˌ.\s]/g, '');
+    if (!a || !b) return 99;                       // 沒音標就當作差很多（保守放行）
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > 3) return 99;
+    const dp = Array.from({ length: a.length + 1 }, (_, i) => [i].concat(new Array(b.length).fill(0)));
+    for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
     }
+    return dp[a.length][b.length];
+  }
+  /** 聽力題可以拿來當選項嗎？音標差 2 個符號以上才算「聽得出差別」。 */
+  const audible = (w, other) => phDist(w.ph, other.ph) >= 2;
+
+  function q_listen(w) {
+    // 有易混淆同伴時考「聽音辨字」，但必須是「聽得出差別」的字
+    const cf = (w.cf || []).map(j => V()[j]).filter(x => x && x.tr && audible(w, x));
+    if (cf.length >= 3) {
+      return mc(w, 'listen', { type: 'listen', speak: base(w.w), ph: w.ph, lv: w.lv },
+        w.w, shuffle(cf).slice(0, 3).map(x => x.w), `${w.w} ${w.ph ? '/' + w.ph + '/' : ''} = ${w.tr}`);
+    }
+    // 退回「聽音辨義」：選項是中文意思，聽錯字也還有語意可以判斷
     const d = distractors(w, 3);
     if (d.length < 3) return null;
-    return mc(w, 'listen', { type: 'listen', speak: base(w.w), lv: w.lv },
+    return mc(w, 'listen', { type: 'listen', speak: base(w.w), ph: w.ph, lv: w.lv },
       w.tr, d.map(x => x.tr), `${w.w} ${w.ph ? '/' + w.ph + '/' : ''} ${w.tr}`);
   }
 
@@ -663,7 +685,7 @@
   window.Quiz = {
     base, expanded, acceptable, distractors, grade, checkFree,
     forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet,
-    stageSet, fixSet, wrongSet, byErrWeight, applyPick, hasSent, applyChance,
+    stageSet, fixSet, wrongSet, byErrWeight, applyPick, hasSent, applyChance, phDist, audible,
     grammarForStage, bandForLevel, sentPool,
     q_free, q_grammar, plainSent, FORM_LABEL, shuffle,
     LIMITS, secsFor,

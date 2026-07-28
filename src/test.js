@@ -69,6 +69,43 @@ t('forWord 對全字庫 400 個隨機字都能產出可判分的題目', () => {
   }
 });
 
+t('聽力題不會拿「發音幾乎一樣」的字當選項（rice / raise 問題）', () => {
+  const byW = new Map(V.map(w => [w.w, w]));
+  assert(Q.phDist('raɪs', 'reɪz') < 3, 'phDist 應該判定 rice/raise 很接近');
+  assert(Q.phDist('raɪs', 'ˈæpl̩') >= 2, 'phDist 應該判定差很多的字可以用');
+  let checked = 0, bad = [];
+  for (let k = 0; k < 3000; k++) {
+    const w = V[Math.floor(Math.random() * V.length)];
+    const q = Q.gen.listen(w);
+    if (!q) continue;
+    if (!q.opts.every(o => byW.has(o))) continue;      // 只檢查「聽音辨字」型
+    checked++;
+    const target = byW.get(q.opts[q.a]);
+    q.opts.forEach((o, i) => {
+      if (i === q.a) return;
+      const other = byW.get(o);
+      if (target && other && target.ph && other.ph && Q.phDist(target.ph, other.ph) < 2) {
+        bad.push(`${target.w}(/${target.ph}/) vs ${other.w}(/${other.ph}/)`);
+      }
+    });
+  }
+  assert(checked > 100, '抽樣到的聽音辨字題太少：' + checked);
+  assert(bad.length === 0, `有 ${bad.length} 組選項聽不出差別，例如 ${bad[0]}`);
+});
+
+t('聽力題會附上音標，畫面才能提供「聽不出來看音標」', () => {
+  let withPh = 0, n = 0;
+  for (let k = 0; k < 200; k++) {
+    const w = V[Math.floor(Math.random() * V.length)];
+    const q = Q.gen.listen(w);
+    if (!q) continue;
+    n++;
+    if (q.prompt.ph) withPh++;
+  }
+  assert(n > 50, '樣本太少');
+  assert(withPh / n > 0.9, `大部分聽力題都該帶音標：${withPh}/${n}`);
+});
+
 t('選項永遠不會重複：全字庫每個字掃 2 次', () => {
   // 曾經有兩個字的中文釋義都只有「誰」，2-gram 比對抓不到 → 出現兩個一樣的選項
   let dup = 0, badA = 0, sample = '';
@@ -373,18 +410,34 @@ t('關卡裡絕對不會出現別的字母的單字（每一級每一個字母�
   }
 });
 
-t('例句 0 個的字母關（H／K）就不出句子題，名額改考本關單字', () => {
-  ['H', 'K'].forEach(L => {
-    const ids = S.bucket(3, L);
-    if (!ids.length) return;
-    for (let k = 0; k < 20; k++) {
-      const qs = Q.stageSet(3, L, 12, 0);
-      const sent = qs.filter(q => ['cloze', 'order', 'trans', 'free'].includes(q.kind));
-      assert(sent.length === 0, L + ' 關沒有例句卻出了句子題：' + sent.map(q => V[q.i].w));
-      assert(qs.length === 12, L + ' 關題數不對：' + qs.length);
-      qs.filter(q => q.i != null).forEach(q =>
-        assert(V[q.i].w[0].toUpperCase() === L, L + ' 關混進 ' + V[q.i].w));
-    }
+t('沒有例句的字母關就不出句子題，名額改考本關單字', () => {
+  // 找一個「這一級這個字母完全沒有例句」的關（第 1、2、5、6 級目前都是）
+  const SEN = window.SENTENCES;
+  let target = null;
+  for (const L of S.LETTERS) {
+    const ids = S.bucket(1, L);
+    if (ids.length >= 12 && ids.every(i => !SEN[V[i].w])) { target = { lv: 1, L, ids }; break; }
+  }
+  assert(target, '找不到完全沒有例句的關卡（例句庫可能已經全滿了）');
+  for (let k = 0; k < 20; k++) {
+    const qs = Q.stageSet(target.lv, target.L, 12, 0);
+    const sent = qs.filter(q => ['cloze', 'order', 'trans', 'free'].includes(q.kind));
+    assert(sent.length === 0, `${target.L} 關沒有例句卻出了句子題：` + sent.map(q => V[q.i].w));
+    assert(qs.length === 12, `${target.L} 關題數不對：${qs.length}`);
+    qs.filter(q => q.i != null).forEach(q =>
+      assert(V[q.i].w[0].toUpperCase() === target.L, `${target.L} 關混進 ${V[q.i].w}`));
+  }
+});
+
+t('第 3、4 級的每一個字母關都出得了句子題（例句已補齊）', () => {
+  const SEN = window.SENTENCES;
+  [3, 4].forEach(lv => {
+    S.LETTERS.forEach(L => {
+      const ids = S.bucket(lv, L);
+      if (!ids.length) return;
+      const withSent = ids.filter(i => SEN[V[i].w]).length;
+      assert(withSent >= 1, `第 ${lv} 級 ${L} 關一個例句都沒有`);
+    });
   });
 });
 
@@ -1250,6 +1303,39 @@ t('素材不能用金幣買（只能靠闖關與合成拿到）', () => {
   S.MAT_ORDER.forEach(m => assert(!ids.includes(m), '素材出現在商店：' + m));
 });
 
+console.log('\n--- 寶箱可以先收起來 ---');
+t('通關的寶箱先存進背包，可以指定開或一次全開', () => {
+  const p = S.profile;
+  p.chestBag = []; p.coins = 0; p.xp = 0; p.inventory = {}; p.materials = {}; p.equipped = {};
+  S.day().chests = [];
+  const id1 = S.addChest('wood', '第 1 級 A 關');
+  const id2 = S.addChest('gold', '第 3 級 B 關');
+  assert(S.chestBag().length === 2, '沒存進背包');
+  const sum = S.chestBagSummary();
+  assert(sum.total === 2 && sum.byTier.wood === 1 && sum.byTier.gold === 1, '統計不對：' + JSON.stringify(sum));
+  const r = S.openStored(id1);
+  assert(r && r.tier === 'wood', '指定開箱失敗：' + JSON.stringify(r));
+  assert(S.chestBag().length === 1, '開過的箱子沒從背包移除');
+  assert(S.chestBag()[0].id === id2, '移除到錯的箱子');
+  assert(S.coins() === r.coin, '金幣沒入帳');
+});
+
+t('一次全開會清空背包並回報總計', () => {
+  const p = S.profile;
+  p.chestBag = []; p.coins = 0; p.xp = 0; p.inventory = {}; p.materials = {};
+  S.day().chests = [];
+  ['wood', 'wood', 'silver', 'gold'].forEach((t2, k) => S.addChest(t2, '測試 ' + k));
+  const all = S.openAllStored();
+  assert(all && all.count === 4, '沒有全開：' + JSON.stringify(all && all.count));
+  assert(S.chestBag().length === 0, '全開後背包沒清空');
+  assert(all.total.coin > 0 && all.total.xp > 0, '總計不對');
+  const sumCoin = all.results.reduce((a, x) => a + x.coin, 0);
+  assert(all.total.coin === sumCoin, '總計金幣與逐箱不符');
+  assert(S.coins() === all.total.coin, '金幣沒入帳');
+  assert(S.chestLog().length === 4, '寶箱紀錄應該有 4 筆');
+  assert(S.openAllStored() === null, '空背包不該還能全開');
+});
+
 console.log('\n--- 商店每日特價 ---');
 t('每日特價每天兩件、固定不變，且真的算便宜', () => {
   const a = S.dealsToday('2026-07-25');
@@ -1261,6 +1347,21 @@ t('每日特價每天兩件、固定不變，且真的算便宜', () => {
   });
   const b = S.dealsToday('2026-08-15');
   assert(a.map(x => x.id).join() !== b.map(x => x.id).join() || true, '不同天可以不同');
+});
+
+t('已經擁有的單品不會再上特價', () => {
+  const p = S.profile;
+  p.inventory = {}; p.coins = 0;
+  const uniq = S.SHOP.filter(x => S.isUnique(x) && x.cost >= 100);
+  assert(uniq.length >= 5, '單品數太少，測不出來');
+  // 把所有單品都設成已擁有，特價就只能挑消耗品／素材包
+  uniq.forEach(x => { S.inventory()[x.id] = 1; });
+  const deals = S.dealsToday('2026-07-28');
+  deals.forEach(d => {
+    const it = S.shopItem(d.id);
+    assert(!(S.isUnique(it) && S.owned(it.id)), `已擁有的單品又上特價：${it.name}`);
+  });
+  p.inventory = {};
 });
 
 t('買特價商品時扣的是特價', () => {

@@ -553,6 +553,14 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .btn.big-btn { font-size: 16px; padding: 13px 20px; }
 .tiny.gold, .gold { color: var(--gold); }
 
+/* ================= 蓋住的答案 ================= */
+.revealbtn {
+  background: var(--card2); border: 1px dashed var(--line); color: var(--tx2);
+  border-radius: 8px; padding: 1px 10px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.revealbtn:hover { border-color: var(--ac); color: var(--ac); }
+.revealed { color: var(--ac); font-weight: 700; }
+
 /* ================= 鍵盤快速鍵 ================= */
 kbd {
   display: inline-block; font: 600 11px/1.4 ui-monospace, Consolas, monospace;

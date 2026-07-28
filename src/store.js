@@ -827,9 +827,14 @@
   }
 
   /* 每日特價：用日期抽 2 件貴的商品打 75 折，每天不一樣 —— 讓商店天天有理由回來看。 */
+  /** 只能擁有一個的類型（主題／稱號／夥伴／護符）——買過就不該再出現在特價。 */
+  const UNIQUE_KINDS = ['theme', 'title', 'pet', 'auto'];
+  const isUnique = it => UNIQUE_KINDS.includes(it.kind);
+
   function dealsToday(dstr) {
     const t = dstr || todayStr();
-    const pool = SHOP.filter(x => x.cost >= 100);
+    // 已經擁有的單品（主題、夥伴、稱號、護符）不再上特價 —— 特價要是買得到的東西
+    const pool = SHOP.filter(x => x.cost >= 100 && !(isUnique(x) && owned(x.id)));
     return pickN(pool, 2, seeded('D' + t)).map(x => ({
       id: x.id, off: 0.25, cost: Math.round(x.cost * 0.75), full: x.cost,
     }));
@@ -1136,6 +1141,55 @@
     { tier: 'silver', text: '全對（小關）／二星沒重來／本關連擊 ≥12' },
     { tier: 'wood', text: '通關' },
   ];
+  /* 沒開的寶箱會存進背包（而不是逼你當場開）。
+     存的是「還沒抽獎的箱子」，所以之後開出來的內容一樣是即時抽的，不會被鎖死。 */
+  function chestBag() {
+    const p = load().profile;
+    return (p.chestBag = p.chestBag || []);
+  }
+  function addChest(tier, from) {
+    const bag = chestBag();
+    const row = { id: 'c' + (load().profile.chestSeq = (load().profile.chestSeq || 0) + 1), tier, from: from || '', at: new Date().toISOString() };
+    bag.push(row);
+    save(true);
+    return row.id;
+  }
+  function takeChest(id) {
+    const bag = chestBag();
+    const k = bag.findIndex(x => x.id === id);
+    if (k < 0) return null;
+    const row = bag.splice(k, 1)[0];
+    save(true);
+    return row;
+  }
+  /** 開背包裡的某一個箱子（沒指定就開最舊的）。 */
+  function openStored(id) {
+    const bag = chestBag();
+    const row = id ? takeChest(id) : (bag.length ? takeChest(bag[0].id) : null);
+    if (!row) return null;
+    return openChest(row.tier);
+  }
+  /** 一次全開：回傳每一箱的內容與總計。 */
+  function openAllStored() {
+    const rows = chestBag().slice();
+    if (!rows.length) return null;
+    const results = [];
+    rows.forEach(r => { takeChest(r.id); results.push(openChest(r.tier)); });
+    const total = results.reduce((a, r) => {
+      a.coin += r.coin; a.xp += r.xp;
+      (r.drops || []).forEach(d => a.drops.push(d));
+      if (r.special) a.special = true;
+      return a;
+    }, { coin: 0, xp: 0, drops: [], special: false });
+    return { results, total, count: results.length };
+  }
+  /** 背包裡各等級各有幾箱（畫面顯示用）。 */
+  function chestBagSummary() {
+    const by = {};
+    chestBag().forEach(c => { by[c.tier] = (by[c.tier] || 0) + 1; });
+    return { total: chestBag().length, byTier: by };
+  }
+
   function chestLog(dstr) {
     const s = load();
     if (dstr === 'all') {
@@ -1643,7 +1697,9 @@
     LETTERS, PASS_ACC, bucket, mapStat, levelStat, nextStage, recordStage,
     winStreak, bestWinStreak, winStreakBonus,
     SHOP, shopItem, coins, addCoins, inventory, owned, buy, consume, equip, equipped, stageCoins,
+    UNIQUE_KINDS, isUnique,
     CHEST, CHEST_ORDER, CHEST_RULES, LOOT, chestTier, upgradeChest, openChest, chestLog, rollOne,
+    chestBag, addChest, takeChest, openStored, openAllStored, chestBagSummary,
     MATERIALS, MAT_ORDER, material, mats, matCount, addMat, useMats,
     matDrop, grantMats, dropLog, gemsToday, RECIPES, canCraft, craft, useKey,
     dealsToday, dealFor, priceOf,

@@ -198,6 +198,9 @@ for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js', 'data/
   new Function(fs.readFileSync(path.join(root, f), 'utf8')).call(global);
 }
 const S = window.Store, Q = window.Quiz, V = window.VOCAB;
+// 測試是同步跑的（幾毫秒內就答完一整關），所以預設關掉「換題後防誤觸」的等待；
+// 另有專門的測試把它打開來驗證保護本身有效。
+window.__guardMs = 0;
 
 // 攔截下載（app.js 用 a.click() 觸發）
 const realCreate = doc.createElement;
@@ -544,20 +547,48 @@ t('買了主題可以裝備，再按一次取消', () => {
   assert(S.equipped('theme') === null, '沒取消裝備');
 });
 
-t('護心符會在開關時自動使用，讓血量 +1', () => {
-  S.profile.inventory = { heart: 1 };
+t('道具預設不使用：沒勾就不會被吃掉', () => {
+  S.profile.inventory = { heart: 1, hourglass: 1, xp2: 1 };
   S.setDifficulty('normal');
   const baseHearts = S.diff().hearts;
   goHome();
   click('[data-maplv="2"]');
   fire('click', doc.querySelector('[data-mapletter]'));
+  assert(has('這一關要用道具嗎'), '選字數畫面沒有道具勾選區：' + txt().slice(0, 300));
+  assert(doc.querySelector('[data-useitem="heart"]'), '沒有護心符的勾選鈕');
   fire('click', doc.querySelector('[data-startstage]'));
   let guard = 0;
   while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
-  assert(!S.inventory().heart, '護心符沒被消耗');
+  assert(S.inventory().heart === 1, '沒勾卻被消耗了');
   const r = window.__run();
-  assert(r.maxHearts === baseHearts + 1, `血量沒 +1：${r.maxHearts} vs ${baseHearts}`);
+  assert(r.maxHearts === baseHearts, `沒勾道具血量不該改變：${r.maxHearts} vs ${baseHearts}`);
+  r.inStage = false;
+});
+
+t('勾了才用：血量／時間／XP 倍率照勾選生效，用完就清空', () => {
+  S.profile.inventory = { heart: 1, hourglass: 1, xp2: 1 };
+  const baseHearts = S.diff().hearts;
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  click('[data-useitem="heart"]');
+  click('[data-useitem="hourglass"]');
+  assert(has('♥' + (baseHearts + 1)), '沒有即時預覽血量變化：' + txt().slice(0, 400));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  const r = window.__run();
+  assert(!S.inventory().heart, '勾了卻沒消耗護心符');
+  assert(!S.inventory().hourglass, '勾了卻沒消耗沙漏');
+  assert(S.inventory().xp2 === 1, '沒勾的 XP 卡不該被消耗');
+  assert(r.maxHearts === baseHearts + 1, `血量沒 +1：${r.maxHearts}`);
+  assert(r.timeMul === 1.5, '沙漏沒生效：' + r.timeMul);
   walkStage({ correct: true });
+  // 勾選狀態用完要清空，下一關不會偷吃
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  assert(!has('目前不使用任何道具') === false, '勾選狀態沒有清空');
 });
 
 console.log('\n--- 每題不即時結算 ---');
@@ -1163,6 +1194,74 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   if (r) r.inStage = false;
 });
 
+console.log('\n--- 誤觸保護與檢討畫面 ---');
+t('換題後的極短時間內不接受作答（避免上一題的連點誤答新題）', () => {
+  window.__guardMs = 250;                       // 打開保護來驗證
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const r = window.__run();
+  const q = curQ();
+  assert(q, '沒有題目');
+  const idx0 = r.idx, ansBefore = r.answers.length;
+  // 題目剛畫出來就馬上點 → 應該被忽略
+  if (q.opts) fire('click', doc.querySelectorAll('.opt')[q.a]);
+  else { doc.querySelector('#ans').value = q.answer || 'x'; click('[data-act="submit"]'); }
+  assert(r.answers.length === ansBefore, '換題後的瞬間點擊竟然被當成作答');
+  assert(r.idx === idx0, '不該換題');
+  // 過了保護時間就正常作答
+  r.drawnAt = Date.now() - 1000;
+  if (q.opts) fire('click', doc.querySelectorAll('.opt')[q.a]);
+  else click('[data-act="submit"]');
+  assert(r.answers.length === ansBefore + 1, '保護時間過後應該可以正常作答');
+  window.__guardMs = 0;
+  r.inStage = false;
+});
+
+t('GAME OVER 也看得到逐題檢討，答案預設蓋住', () => {
+  window.__guardMs = 0;
+  S.setDifficulty('extreme');                   // 一顆心，錯一題就結束
+  S.profile.inventory = {};                     // 沒有復活石
+  goHome();
+  click('[data-maplv="3"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const r = walkStage({ correct: false });
+  if (r.end !== 'dead') { S.setDifficulty('easy'); return; }   // 剛好沒死就跳過
+  assert(has('GAME OVER'), '沒有 GAME OVER');
+  assert(doc.querySelector('[data-close="review"]'), '沒有「看逐題檢討」選項');
+  click('[data-close="review"]');
+  assert(has('逐題檢討'), '關掉視窗後沒有檢討清單：' + txt().slice(0, 300));
+  assert(doc.querySelector('[data-reveal]'), '答案沒有蓋起來');
+  assert(!has('正確：<span'), '答案不該直接顯示');
+  const btn = doc.querySelector('[data-reveal]');
+  const ans = btn.dataset.ans;
+  fire('click', btn);
+  assert(has(ans), '按了「看答案」卻沒顯示：' + ans);
+  S.setDifficulty('easy');
+});
+
+t('「全部顯示答案」一次掀開所有答案', () => {
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  walkStage({ correct: true });
+  assert(doc.querySelectorAll('[data-reveal]').length >= 1, '結算的檢討沒有蓋住答案');
+  click('[data-act="revealAll"]');
+  assert(doc.querySelectorAll('[data-reveal]').length === 0, '全部顯示後不該還有蓋住的答案');
+  assert(doc.querySelectorAll('.revealed').length >= 1, '沒有顯示出答案');
+});
+
 console.log('\n--- 鍵盤快速鍵 ---');
 t('學習卡可以純鍵盤操作：下一個／上一個／早就會了', () => {
   S.resetKeys();
@@ -1452,14 +1551,58 @@ t('素材夠才能按合成，按了會拿到道具', () => {
   assert(hard && hard.disabled, '素材不夠的配方應該停用');
 });
 
+t('通關的寶箱可以先收起來，之後在背包一次全開', () => {
+  S.profile.chestBag = [];
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="1"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  const r = walkStage({ correct: true });
+  assert(r.end === 'cleared', '沒通關：' + r.end);
+  assert(S.chestBag().length === 1, '通關的寶箱沒先存進背包：' + S.chestBag().length);
+  assert(has('已經收進背包'), '沒告訴使用者寶箱已收起來');
+  // 進到全螢幕選箱畫面，選擇「先收進背包」
+  click('[data-act="openChest"]');
+  assert(doc.querySelector('[data-act="chestLater"]'), '選箱畫面沒有「先收進背包」');
+  click('[data-act="chestLater"]');
+  assert(S.chestBag().length === 1, '按了先收起來卻把箱子開掉了');
+  // 再打一關，累積第二箱
+  goHome();
+  click('[data-maplv="1"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) click('[data-act="nextCard"]');
+  walkStage({ correct: true });
+  assert(S.chestBag().length === 2, '第二箱沒存起來：' + S.chestBag().length);
+  // 背包一次全開
+  goHome();
+  click('[data-go="bag"]');
+  assert(has('還沒開的寶箱') && has('一次全開'), '背包沒有未開寶箱區：' + txt().slice(0, 300));
+  const coinsBefore = S.coins();
+  click('[data-act="openAllChests"]');
+  assert(has('開了 2 箱'), '沒有全開演出：' + txt().slice(0, 300));
+  assert(S.chestBag().length === 0, '全開後背包沒清空');
+  assert(S.coins() > coinsBefore, '金幣沒入帳');
+  click('[data-go="bag"]');
+  assert(has('目前沒有存起來的寶箱'), '清空後的提示不對');
+});
+
 t('背包可以用鑰匙開箱，同樣走全螢幕演出', () => {
+  S.profile.materials = { key: 1 };
+  goHome(); click('[data-go="bag"]');
   const coinsBefore = S.coins();
   click('[data-act="useKey"]');
   assert(doc.querySelector('.chestscene'), '沒進全螢幕開箱畫面');
-  assert(S.matCount('key') === 0, '鑰匙沒消耗');
   click('[data-openchest="0"]');
   assert(doc.querySelector('.chestscene.open'), '沒有開箱結果');
   assert(S.coins() > coinsBefore, '金幣沒入帳');
+  // 銀寶箱本身有機率再開出鑰匙，所以要扣掉這次開出的量再比對
+  const back = (S.chestLog()[0].drops || []).filter(d => d.mat === 'key').reduce((a, d) => a + d.n, 0);
+  assert(S.matCount('key') === back, `鑰匙沒消耗（剩 ${S.matCount('key')}，這次開出 ${back}）`);
   click('[data-act="chestDone"]');
   assert(has('背包'), '收下後應該回到背包');
 });
