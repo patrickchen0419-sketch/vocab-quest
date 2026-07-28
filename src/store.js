@@ -13,6 +13,39 @@
     newPerDay: 6, reviewCap: 12, applyPerDay: 3, stageQuestions: 10,
     applyPerStage: 2, gramPerStage: 1, sentRate: 60,
   };
+  /* 鍵盤快速鍵：主要動線都能不用滑鼠。
+     值是 KeyboardEvent.key（空白鍵是 ' '），單一字母一律存大寫。 */
+  const KEY_ACTS = [
+    { id: 'next', name: '下一題 / 繼續', def: ' ' },
+    { id: 'submit', name: '送出答案', def: 'Enter' },
+    { id: 'card', name: '學習卡：記住了，下一個 / 開始闖關', def: ' ' },
+    { id: 'prev', name: '學習卡：上一個', def: 'Backspace' },
+    { id: 'know', name: '學習卡：這個我早就會了', def: 'Delete' },
+    { id: 'speak', name: '重播發音', def: 'Shift' },
+    { id: 'fifty', name: '使用刪去法', def: 'F' },
+    { id: 'pause', name: '暫停 / 關閉視窗', def: 'Escape' },
+    { id: 'primary', name: '結算畫面的主要按鈕（開寶箱／下一關…）', def: 'Enter' },
+  ];
+  const KEY_DEFAULTS = KEY_ACTS.reduce((o, a) => { o[a.id] = a.def; return o; }, {});
+  function keys() {
+    const c = load().profile.settings;
+    c.keys = Object.assign({}, KEY_DEFAULTS, c.keys || {});
+    return c.keys;
+  }
+  function keyOf(id) { return keys()[id] || KEY_DEFAULTS[id] || ''; }
+  function setKey(id, k) {
+    if (!KEY_DEFAULTS[id] || !k) return keys();
+    const kk = String(k).length === 1 ? String(k).toUpperCase() : String(k);
+    keys()[id] = kk;
+    save(true);
+    return keys();
+  }
+  function resetKeys() {
+    load().profile.settings.keys = Object.assign({}, KEY_DEFAULTS);
+    save(true);
+    return keys();
+  }
+
   /** 使用者可以關掉不想練的題型（至少要留一種）。 */
   const ALL_KINDS = ['e2c', 'c2e', 'listen', 'spell', 'form', 'confuse', 'cloze', 'order', 'trans', 'free', 'gmc', 'gfix'];
   const KIND_NAMES = {
@@ -1599,6 +1632,7 @@
     summary, history, reset,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
+    KEY_ACTS, KEY_DEFAULTS, keys, keyOf, setKey, resetKeys,
     goalCfg, setGoal, clearGoal, goalStat,
     checkIn, checkinPreview, checkinSlot, CHECKIN_TRACK, CHECKIN_MILESTONE,
     recentAccuracy, recommendDifficulty, difficultyFits,

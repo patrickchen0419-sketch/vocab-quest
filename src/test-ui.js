@@ -27,6 +27,9 @@ class El {
       getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
     });
   }
+  // 瀏覽器的元素有 tagName（大寫）。app.js 用它判斷「焦點是不是在輸入框」與
+  // 「要不要綁 Enter 送出」，少了它這兩條路在測試裡等於沒被驗到。
+  get tagName() { return String(this.tag).toUpperCase(); }
   get id() { return this.attrs.id || ''; }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
@@ -65,7 +68,11 @@ class El {
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
   addEventListener(t, fn) { (this._ev = this._ev || {})[t] = (this._ev[t] || []).concat(fn); }
   focus() { doc.activeElement = this; }
+  blur() { if (doc.activeElement === this) doc.activeElement = null; }
   select() { }
+  /* 真的瀏覽器裡 el.click() 會派送一個會冒泡的 click 事件；app.js 的鍵盤快速鍵就是靠這個
+     去按覆蓋層（暫停／GAME OVER／選寶箱）的按鈕。少了它，鍵盤操作等於測不到。 */
+  click() { fire('click', this); }
   closest(sel) { let n = this; while (n) { if (n instanceof El && matches(n, sel)) return n; n = n.parent; } return null; }
   querySelector(sel) { return query(this, sel)[0] || null; }
   querySelectorAll(sel) { return query(this, sel); }
@@ -149,6 +156,13 @@ const doc = {
   readyState: 'complete',
   set innerHTML(v) { doc.body.innerHTML = v; },
 };
+/* 真的瀏覽器在整頁換掉之後，焦點會回到 body（activeElement 不會留在舊的輸入框）。
+   鍵盤快速鍵會用 activeElement 判斷「是不是正在打字」，所以這裡必須模擬同樣的行為。 */
+const _setBodyHTML = Object.getOwnPropertyDescriptor(El.prototype, 'innerHTML').set;
+Object.defineProperty(doc.body, 'innerHTML', {
+  get() { return serialize(this); },
+  set(v) { doc.activeElement = null; _setBodyHTML.call(this, v); },
+});
 Object.defineProperty(doc.body, 'ownerDocument', { value: doc });
 
 // ================= 全域環境 =================
@@ -234,7 +248,10 @@ function click(sel) {
 }
 function has(text) { return doc.body.innerHTML.includes(text); }
 function txt() { return doc.body.innerHTML; }
-function press(key) { (doc._ev.keydown || []).forEach(fn => fn({ key, target: doc.body, preventDefault() { }, ctrlKey: false })); }
+function press(key, opts) {
+  const ev = Object.assign({ key, target: doc.activeElement || doc.body, preventDefault() { }, ctrlKey: false, altKey: false }, opts || {});
+  (doc._ev.keydown || []).forEach(fn => fn(ev));
+}
 
 /** 目前題目（透過 app.js 的測試接縫取得）。 */
 function curQ() {
@@ -1144,6 +1161,128 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   assert(S.day().newIds.length === n - 1, `新字數應該是 ${n - 1}，實際 ${S.day().newIds.length}`);
   const r = window.__run && window.__run();
   if (r) r.inStage = false;
+});
+
+console.log('\n--- 鍵盤快速鍵 ---');
+t('學習卡可以純鍵盤操作：下一個／上一個／早就會了', () => {
+  S.resetKeys();
+  S.settings.memes = true;
+  S.setDifficulty('easy');
+  const s = S.load();
+  s.words = {};                                   // 清空才會有新字出學習卡
+  goHome();
+  click('[data-maplv="4"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  assert(has('先認識新單字'), '沒進學習卡：' + txt().slice(0, 200));
+  assert(has('<kbd>'), '按鈕上沒有顯示快速鍵');
+  const at = () => (window.__cards || {}).k;
+  const k0 = at();
+  press(' ');                                     // 預設：空白鍵 = 下一個
+  assert(at() === k0 + 1, `空白鍵沒有前進：${k0} → ${at()}`);
+  press('Backspace');                             // 預設：⌫ = 上一個
+  assert(at() === k0, `Backspace 沒有後退：${at()}`);
+  const id = window.__cards.ids[at()];
+  press('Delete');                                // 預設：Del = 早就會了
+  assert(S.load().words[id] && S.load().words[id].k === 1, 'Delete 沒有標記為早就會了');
+  assert(at() === k0 + 1, 'Delete 之後沒有換下一張');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) press(' ');
+  assert(!has('先認識新單字'), '空白鍵沒把學習卡走完');
+});
+
+t('作答可以純鍵盤：數字選答案、送出、空白鍵下一題', () => {
+  S.settings.instantFeedback = true;
+  const q = curQ();
+  assert(q, '沒有題目');
+  if (q.opts) {
+    press(String(q.a + 1));
+    assert(has('答對了'), '數字鍵沒選到正確答案：' + txt().slice(0, 200));
+  } else {
+    const inp = doc.querySelector('#ans');
+    assert(inp, '沒有輸入框');
+    inp.value = q.answer || (q.accept && q.accept[0]) || 'x';
+    doc.activeElement = inp;
+    press('Enter');                               // 預設：Enter = 送出
+    assert(has('答對了') || has('答錯'), 'Enter 沒有送出：' + txt().slice(0, 200));
+  }
+  const idx0 = window.__run().idx;
+  press(' ');                                     // 預設：空白鍵 = 下一題
+  assert(window.__run().idx === idx0 + 1, '空白鍵沒有換下一題');
+  S.settings.instantFeedback = false;
+  window.__run().inStage = false;
+});
+
+t('在文字框裡打空白不會被當成「下一題」', () => {
+  S.settings.instantFeedback = true;
+  goHome();
+  click('[data-maplv="3"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) press(' ');
+  // 找到需要打字的題目
+  let hops = 0;
+  while (!doc.querySelector('#ans') && hops++ < 20) {
+    const q = curQ();
+    if (!q) break;
+    if (q.opts) { press(String(q.a + 1)); press(' '); }
+  }
+  const inp = doc.querySelector('#ans');
+  if (!inp) { window.__run().inStage = false; S.settings.instantFeedback = false; return; }
+  doc.activeElement = inp;
+  const idx0 = window.__run().idx;
+  press(' ');
+  assert(window.__run().idx === idx0, '在輸入框打空白卻跳到下一題了');
+  S.settings.instantFeedback = false;
+  window.__run().inStage = false;
+});
+
+t('設定頁可以改鍵，改完立刻生效', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(has('鍵盤快速鍵'), '設定頁沒有鍵盤區');
+  assert(doc.querySelectorAll('[data-keyset]').length === S.KEY_ACTS.length, '改鍵按鈕數不對');
+  click('[data-keyset="card"]');
+  assert(has('請按一個鍵'), '沒進入等待按鍵狀態');
+  press('Shift');                                  // 把「學習卡下一個」改成 Shift
+  assert(S.keyOf('card') === 'Shift', '沒改成 Shift：' + S.keyOf('card'));
+  assert(has('Shift'), '設定頁沒顯示新的鍵');
+  // 實際去學習卡驗證 Shift 有效、空白鍵失效
+  const s = S.load();
+  s.words = {};
+  goHome();
+  click('[data-maplv="5"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  if (has('先認識新單字')) {
+    const k0 = window.__cards.k;
+    press(' ');
+    assert(window.__cards.k === k0, '改鍵之後空白鍵不該再前進');
+    press('Shift');
+    assert(window.__cards.k === k0 + 1, 'Shift 沒有前進');
+  }
+  const r = window.__run(); if (r) r.inStage = false;
+  goHome();
+  click('[data-go="settings"]');
+  click('[data-act="resetKeys"]');
+  assert(S.keyOf('card') === ' ', '還原預設失敗：' + JSON.stringify(S.keyOf('card')));
+});
+
+t('結算畫面按主鍵就能繼續（不用找滑鼠）', () => {
+  S.resetKeys();
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 80) press(' ');
+  const r = walkStage({ correct: true });
+  assert(r.end === 'cleared', '沒通關：' + r.end);
+  const before = txt();
+  press('Enter');                                  // 預設：Enter = 主要按鈕
+  assert(txt() !== before, 'Enter 沒有觸發結算畫面的主要按鈕');
 });
 
 console.log('\n--- 迷因台詞 ---');

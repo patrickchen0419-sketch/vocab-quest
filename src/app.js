@@ -586,7 +586,7 @@
       `<button class="opt" data-opt="${k}"><span class="k">${'ABCD'[k]}</span><span>${esc(o)}</span></button>`).join('')}</div>` : '';
     const submitHtml = q.opts ? '' :
       `<div class="btnrow" style="margin-top:14px;justify-content:center">
-         <button class="btn primary" data-act="submit">${p.type === 'free' ? '寫好了，下一題' : '送出'}</button>
+         <button class="btn primary" data-act="submit">${p.type === 'free' ? '寫好了，下一題' : '送出'} ${kbd('submit')}</button>
          ${p.type === 'order' ? '<button class="btn ghost" data-act="clearSlot">清空</button>' : ''}
        </div>`;
 
@@ -599,7 +599,7 @@
         <div class="progressline"><i style="width:${run.idx / run.qs.length * 100}%"></i></div>
         <span class="tiny">${run.idx + 1}/${run.qs.length}</span>
         ${useTimer ? '<span class="timer" id="timer"></span>' : ''}
-        ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty}</button>` : ''}
+        ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty} ${kbd('fifty')}</button>` : ''}
       </div>
       <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${submitHtml}</div>
       <div id="fb"></div>
@@ -852,7 +852,8 @@
       b.disabled = true;
       if (q.opts && String(k) === String(given)) b.classList.add('picked');
     });
-    const inp = $('#ans'); if (inp) inp.disabled = true;
+    // 鎖住這一題：順便讓輸入框失焦，否則空白鍵還會被當成「正在打字」而不是「下一題」
+    const inp = $("#ans"); if (inp) { inp.disabled = true; if (inp.blur) inp.blur(); }
     document.querySelectorAll('.tile').forEach(b => { b.disabled = true; });
   }
 
@@ -864,7 +865,8 @@
         else if (String(k) === String(given)) b.classList.add('no');
       }
     });
-    const inp = $('#ans'); if (inp) inp.disabled = true;
+    // 鎖住這一題：順便讓輸入框失焦，否則空白鍵還會被當成「正在打字」而不是「下一題」
+    const inp = $("#ans"); if (inp) { inp.disabled = true; if (inp.blur) inp.blur(); }
     document.querySelectorAll('.tile,[data-act="clearSlot"]').forEach(b => b.disabled = true);
 
     let head;
@@ -894,7 +896,7 @@
     if (w && (window.SENTENCES[w.w] || {}).trap && ok === false) extra.push('⚠ ' + esc(window.SENTENCES[w.w].trap));
     $('#fb').innerHTML = `<div class="feedback ${ok === false ? 'no' : 'ok'}">${head}
       ${extra.length ? `<div style="margin-top:8px;color:var(--tx2);font-size:13.5px">${extra.join('<br>')}</div>` : ''}</div>
-      <div class="btnrow" style="margin-top:12px"><button class="btn primary" data-act="next">${run.dead ? '血量用完了…' : run.idx + 1 >= run.qs.length ? '完成這一關' : '下一題'}</button>
+      <div class="btnrow" style="margin-top:12px"><button class="btn primary" data-act="next">${run.dead ? '血量用完了…' : run.idx + 1 >= run.qs.length ? '完成這一關' : '下一題'} ${kbd('next')}</button>
       ${w ? `<button class="btn ghost" data-say="${esc(Q.base(w.w))}">🔊 ${esc(Q.base(w.w))}</button>` : ''}</div>`;
     if (ok) $('#qcard').classList.add('flash-ok');
     if (ok === false) $('#qcard').classList.add('gameover');
@@ -1590,9 +1592,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         ${sen && sen.trap ? `<p class="tiny" style="color:var(--gold);margin-top:8px">⚠ ${esc(sen.trap)}</p>` : ''}
       </div>
       <div class="btnrow" style="justify-content:center">
-        ${k > 0 ? '<button class="btn ghost" data-act="prevCard">← 上一個</button>' : ''}
-        <button class="btn primary" data-act="nextCard">${k + 1 >= ids.length ? '開始闖關 →' : '記住了，下一個 →'}</button>
-        <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭</button>
+        ${k > 0 ? `<button class="btn ghost" data-act="prevCard">← 上一個 ${kbd('prev')}</button>` : ''}
+        <button class="btn primary" data-act="nextCard">${k + 1 >= ids.length ? '開始闖關 →' : '記住了，下一個 →'} ${kbd('card')}</button>
+        <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭ ${kbd('know')}</button>
       </div>
       ${memeTag('cards')}
       <p class="tiny" style="text-align:center">看完這 ${ids.length} 個新字就開始闖關。
@@ -2404,6 +2406,16 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <p class="tiny">關掉的題型就不會再出現。至少要留一種。</p>
       <div class="pills">${S.ALL_KINDS.map(k =>
         `<button class="pill ${S.kindOn(k) ? 'on' : ''}" data-kind="${k}">${esc(S.KIND_NAMES[k])}</button>`).join('')}</div>
+      <h3 style="margin-top:16px">⌨ 鍵盤快速鍵</h3>
+      <p class="tiny">整條動線都可以不用滑鼠。點「改鍵」之後直接按你要的鍵（Shift、Enter、Delete、空白鍵都可以）。
+        同一個鍵可以綁在不同動作上，系統會依當下畫面決定要做什麼。</p>
+      <div class="keys">${S.KEY_ACTS.map(a => `<div class="keyrow">
+        <span class="kname">${esc(a.name)}</span>
+        <kbd>${esc(keyLabel(S.keyOf(a.id)))}</kbd>
+        <button class="btn sm ${keyCapture === a.id ? 'primary' : ''}" data-keyset="${a.id}">${keyCapture === a.id ? '請按一個鍵…' : '改鍵'}</button>
+      </div>`).join('')}</div>
+      <div class="btnrow"><button class="btn sm ghost" data-act="resetKeys">還原成預設鍵</button></div>
+
       <h3 style="margin-top:16px">其他</h3>
       <label class="row"><input type="checkbox" ${c.timer ? 'checked' : ''} data-chk="timer">每題倒數計時</label>
       <label class="row"><input type="checkbox" ${c.instantFeedback ? 'checked' : ''} data-chk="instantFeedback">每題答完立刻對答案（預設關閉：整關結束才一次結算）</label>
@@ -2459,6 +2471,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       S.equip(eq.dataset.equip); applyTheme();
       return inBag ? bag() : shop();
     }
+    const ks = t.closest('[data-keyset]');
+    if (ks) { keyCapture = ks.dataset.keyset; return settings(); }
     const cr = t.closest('[data-craft]');
     if (cr) {
       const r = S.craft(cr.dataset.craft);
@@ -2596,20 +2610,111 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const chk = e.target.closest('[data-chk]');
     if (chk) { S.settings[chk.dataset.chk] = chk.checked; S.save(true); }
   });
+  /* ---------------- 鍵盤操作 ----------------
+     目標：整條動線（看卡片 → 作答 → 看檢討 → 下一題 → 結算 → 開寶箱）都不用碰滑鼠。
+     同一個鍵可以綁在不同動作上（例如空白鍵同時是「下一題」與「學習卡下一個」），
+     因為當下畫面只會有一種情境；下面依情境決定要做什麼。 */
+  const KEY_LABEL = {
+    ' ': 'Space', Enter: 'Enter', Escape: 'Esc', Backspace: '⌫', Delete: 'Del', Shift: 'Shift',
+    Tab: 'Tab', Control: 'Ctrl', Alt: 'Alt', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+  };
+  const keyLabel = k => KEY_LABEL[k] || String(k || '').toUpperCase();
+  const kbd = id => `<kbd>${esc(keyLabel(S.keyOf(id)))}</kbd>`;
+  let keyCapture = null;                 // 設定頁「改鍵」時，正在等哪個動作的按鍵
+  const sameKey = (ev, id) => {
+    const want = S.keyOf(id);
+    if (!want) return false;
+    if (want.length === 1) return String(ev.key).toUpperCase() === want;
+    return ev.key === want;
+  };
+  /** 正在打字（輸入框／文字區）時，只有非文字鍵能當快速鍵，否則會打不出字。 */
+  function typingNow() {
+    const el = document.activeElement;
+    if (!el || !el.tagName) return false;
+    const t = String(el.tagName).toUpperCase();
+    return t === 'INPUT' || t === 'TEXTAREA';
+  }
+  const PRINTABLE = k => String(k).length === 1 || k === ' ';
+
   document.addEventListener('keydown', e => {
-    if (!run || run.locked === undefined) return;
-    const q = run.qs && run.qs[run.idx];
-    if (!q) return;
-    if ($('#fb') && $('#fb').innerHTML && (e.key === 'Enter' || e.key === ' ')) {
-      const nb = document.querySelector('[data-act="next"]');
-      if (nb) { e.preventDefault(); return next(); }
-    }
-    if (q.opts && !run.locked && /^[1-4]$/.test(e.key)) {
-      const b = document.querySelector(`[data-opt="${+e.key - 1}"]`);
-      if (b) { e.preventDefault(); answerQ(q, +e.key - 1); }
-    }
-    if (e.key === 'Enter' && e.ctrlKey) { const s = document.querySelector('[data-act="submit"]'); if (s) submit(); }
+    try { handleKey(e); } catch (err) { console.error(err); showError(err); }
   });
+
+  function handleKey(e) {
+    // 設定頁正在等你按鍵：這一下就是要設定的鍵，不執行任何動作
+    if (keyCapture) {
+      if (e.key === 'Tab') return;                        // 留給無障礙的焦點切換
+      e.preventDefault();
+      const id = keyCapture;
+      keyCapture = null;
+      S.setKey(id, e.key);
+      toast(`「${(S.KEY_ACTS.find(a => a.id === id) || {}).name}」改成 ${keyLabel(S.keyOf(id))}`);
+      return settings();
+    }
+    if (e.ctrlKey && e.key === 'Enter') {                 // Ctrl+Enter 一律送出（寫作文時用）
+      const s = document.querySelector('[data-act="submit"]');
+      if (s) { e.preventDefault(); return submit(); }
+    }
+    const typing = typingNow();
+    if (typing && PRINTABLE(e.key) && !e.ctrlKey && !e.altKey) {
+      // 打字中：只讓 Enter 這種非文字鍵通過（單行輸入框才用 Enter 送出）
+      if (e.key !== 'Enter') return;
+    }
+    const overlay = document.querySelector('.overlay');
+    // 1) 有蓋版視窗（暫停／GAME OVER／選寶箱）：主鍵按主要按鈕，Esc 按「繼續／取消」
+    if (overlay) {
+      if (sameKey(e, 'pause')) {
+        const stay = overlay.querySelector('[data-close="resume"], [data-close="stay"], [data-close="no"]');
+        if (stay) { e.preventDefault(); return fire(stay); }
+      }
+      if (sameKey(e, 'primary') || sameKey(e, 'next')) {
+        const go = overlay.querySelector('.btn.primary[data-close]') || overlay.querySelector('[data-close]');
+        if (go) { e.preventDefault(); return fire(go); }
+      }
+      return;
+    }
+    // 2) 學習卡
+    if (document.querySelector('[data-act="nextCard"]')) {
+      if (sameKey(e, 'card')) { e.preventDefault(); return fire(document.querySelector('[data-act="nextCard"]')); }
+      if (sameKey(e, 'prev')) { const b = document.querySelector('[data-act="prevCard"]'); if (b) { e.preventDefault(); return fire(b); } }
+      if (sameKey(e, 'know')) { const b = document.querySelector('[data-act="knowCard"]'); if (b) { e.preventDefault(); return fire(b); } }
+      if (sameKey(e, 'speak')) { const b = document.querySelector('[data-say]'); if (b) { e.preventDefault(); return say(b.dataset.say); } }
+      if (sameKey(e, 'pause')) { const b = document.querySelector('[data-act="cardPause"]'); if (b) { e.preventDefault(); return fire(b); } }
+      return;
+    }
+    // 3) 作答中／看檢討
+    const inStage = run && run.qs && run.qs[run.idx];
+    if (inStage) {
+      const q = run.qs[run.idx];
+      const fb = $('#fb');
+      if (fb && fb.innerHTML && (sameKey(e, 'next') || sameKey(e, 'primary'))) {
+        const nb = document.querySelector('[data-act="next"]');
+        if (nb) { e.preventDefault(); return next(); }
+      }
+      if (!run.locked) {
+        if (q.opts && /^[1-4]$/.test(e.key)) {
+          const b = document.querySelector(`[data-opt="${+e.key - 1}"]`);
+          if (b) { e.preventDefault(); return answerQ(q, +e.key - 1); }
+        }
+        if (sameKey(e, 'submit') && document.querySelector('[data-act="submit"]')) { e.preventDefault(); return submit(); }
+        if (sameKey(e, 'fifty') && document.querySelector('[data-act="fifty"]')) { e.preventDefault(); return useFifty(); }
+        if (sameKey(e, 'speak')) { const b = document.querySelector('[data-say]'); if (b) { e.preventDefault(); return say(b.dataset.say); } }
+        if (sameKey(e, 'pause') && document.querySelector('[data-act="gear"]')) { e.preventDefault(); return doAct('gear'); }
+      }
+      return;
+    }
+    // 4) 其他畫面（結算、地圖、首頁…）：主鍵＝畫面上第一顆主要按鈕
+    if (sameKey(e, 'primary') || sameKey(e, 'next')) {
+      const b = document.querySelector('.wrap .btn.primary') || document.querySelector('.wrap .btn.gold');
+      if (b && !b.disabled) { e.preventDefault(); return fire(b); }
+    }
+  }
+  /** 用程式觸發點擊（走同一條事件委派，行為跟真的按下去一樣）。 */
+  function fire(el) {
+    if (!el) return;
+    if (typeof el.click === 'function') return el.click();   // 真的派送一次點擊（會冒泡）
+    handleClick({ target: el, preventDefault() { } });
+  }
 
   function doAct(a) {
     if (a === 'back') return goBack();
@@ -2658,6 +2763,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'sweepSubmit') return sweepCheck();
     if (a === 'sweepAllNo') { sw.batch.forEach((w, k) => sw.off.add(k)); return sweepCheck(); }
     if (a === 'sweepEnd') { clearInterval(window.__swTimer); return home(); }
+    if (a === 'resetKeys') { S.resetKeys(); keyCapture = null; toast('快速鍵已還原成預設'); return settings(); }
     if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
     if (a === 'useKey') {
