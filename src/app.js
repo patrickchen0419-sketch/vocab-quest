@@ -554,6 +554,9 @@
     let body = '';
 
     const speakBtn = p.speak ? `<button class="speak" data-say="${esc(p.speak)}" title="播放發音">🔊</button>` : '';
+    /* 題目要求要比單字本身更顯眼 —— 不然會出現「字超大、但沒看到是要選複數」的情況。
+       所有題型都用同一條橫幅，位置固定在最上面。 */
+    const qask = html => `<div class="qask">${html}</div>`;
     const redoTag = q.redo ? '<div class="redotag">🔁 剛才錯過的字，再練一次</div>' : '';
     // 句子題如果不是這一關的字（本關的字沒有例句），要標清楚，不然會像「D 關怎麼跑出 E 開頭」
     const outTag = q.outside && q.i != null
@@ -562,57 +565,64 @@
     const lvTag = p.lv ? `<div class="qtag">${p.tag ? esc(p.tag) + ' ・ ' : ''}第 ${p.lv} 級 ${p.pos ? '・ ' + esc(p.pos) : ''}</div>` : '';
 
     if (p.type === 'word') {
-      body = `${lvTag}<div class="qword">${esc(p.word)} ${speakBtn}</div>
-        ${p.ph ? `<div class="qph">/${esc(p.ph)}/</div>` : ''}<p class="muted" style="margin-top:10px">選出正確的中文意思</p>`;
+      body = `${lvTag}${qask('選出正確的<b>中文意思</b>')}
+        <div class="qword">${esc(p.word)} ${speakBtn}</div>
+        ${p.ph ? `<div class="qph">/${esc(p.ph)}/</div>` : ''}`;
     } else if (p.type === 'zh') {
-      body = `${lvTag}<div class="qword zh">${esc(p.zh)}</div><p class="muted" style="margin-top:10px">選出正確的英文單字</p>`;
+      body = `${lvTag}${qask('選出正確的<b>英文單字</b>')}
+        <div class="qword zh">${esc(p.zh)}</div>`;
     } else if (p.type === 'listen') {
       /* 聽力題最容易吵架的地方：TTS 把 rice / raise 唸得幾乎一樣。
          對策：自動唸兩次、提供「更慢」按鈕、真的聽不出來還能看音標（音標不會直接告訴你意思）。 */
-      body = `${lvTag}<div style="font-size:52px">🔊</div>
+      body = `${lvTag}${qask('<b>聽發音</b>，選出正確答案　<span class="qasksub">會自動唸兩次</span>')}
+        <div style="font-size:52px">🔊</div>
         <div class="btnrow" style="justify-content:center;margin-top:8px">
           <button class="btn" data-say="${esc(p.speak)}">🔊 再聽一次</button>
           <button class="btn" data-slow="${esc(p.speak)}">🐢 慢速播放</button>
           ${p.ph ? `<button class="btn ghost" data-act="showPh">看音標</button>` : ''}
         </div>
         <div class="qph" id="phhint" style="margin-top:10px;visibility:hidden">/${esc(p.ph || '')}/</div>
-        <p class="muted" style="margin-top:8px">聽發音，選出正確答案（會自動唸兩次）</p>`;
+        <p class="tiny" style="margin-top:8px">聽不清楚可以按「慢速播放」或「看音標」。</p>`;
       setTimeout(() => say(p.speak, { twice: true }), 250);
     } else if (p.type === 'spell') {
-      body = `${lvTag}<div class="qword zh">${esc(p.zh)}</div>
+      body = `${lvTag}${qask(`<b>拼出</b>這個英文單字（${p.len} 個字母）`)}
+        <div class="qword zh">${esc(p.zh)}</div>
         <div class="qph" style="letter-spacing:5px;font-size:22px;margin-top:10px">${esc(p.hint)}</div>
-        <p class="muted" style="margin-top:8px">拼出這個英文單字（只給字數：${p.len} 個字母，不給任何字母）</p>
+        <p class="tiny" style="margin-top:6px">只給字數，不給任何字母。</p>
         <input class="txt" id="ans" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入拼字">`;
     } else if (p.type === 'form') {
-      body = `${lvTag}<div class="qword">${esc(p.word)} ${speakBtn}</div>
-        <div class="qph">${esc(p.zh)}</div>
-        <p class="muted" style="margin-top:12px">請選出它的 <b style="color:var(--gold)">${esc(p.ask)}</b></p>`;
+      body = `${lvTag}${qask(`請選出它的 <b class="hot">${esc(p.ask)}</b>`)}
+        <div class="qword">${esc(p.word)} ${speakBtn}</div>
+        <div class="qph">${esc(p.zh)}</div>`;
     } else if (p.type === 'cloze') {
-      body = `${lvTag}<div class="qsent">${esc(p.sentence).replace(/\{[^}]*\}/, '<span class="gap">?</span>')}</div>
-        <div class="qzh">${esc(p.zh)}</div><p class="muted" style="margin-top:10px">選出最適合填入的字</p>`;
+      body = `${lvTag}${qask('選出最適合<b>填進空格</b>的字')}
+        <div class="qsent">${esc(p.sentence).replace(/\{[^}]*\}/, '<span class="gap">?</span>')}</div>
+        <div class="qzh">${esc(p.zh)}</div>`;
     } else if (p.type === 'order') {
-      body = `${lvTag}<p class="muted">把下面的詞塊排成正確的英文句子</p>
+      body = `${lvTag}${qask('把詞塊<b>排成正確的英文句子</b>')}
         <div class="qzh" style="font-size:17px;color:var(--tx)">${esc(p.zh)}</div>
         <div class="slot" id="slot"></div>
         <div class="tiles" id="tiles">${p.tiles.map((t, k) => `<button class="tile" data-tile="${k}">${esc(t)}</button>`).join('')}</div>`;
     } else if (p.type === 'trans') {
-      body = `${lvTag}<div class="qzh" style="font-size:17px;color:var(--tx)">${esc(p.zh)}</div>
+      body = `${lvTag}${qask('<b>填入</b>正確的字')}
+        <div class="qzh" style="font-size:17px;color:var(--tx)">${esc(p.zh)}</div>
         <div class="qsent" style="margin-top:10px">${esc(p.sentence).replace('____', '<span class="gap">?</span>')}</div>
-        <p class="muted" style="margin-top:10px">填入正確的字（提示：${esc(p.hint)}）</p>
+        <p class="tiny" style="margin-top:8px">提示：${esc(p.hint)}</p>
         <input class="txt" id="ans" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入單字">`;
     } else if (p.type === 'free') {
-      body = `${lvTag}<div class="qword">${esc(p.word)} ${speakBtn}</div>
+      body = `${lvTag}${qask('用這個字<b>寫一句英文</b>')}
+        <div class="qword">${esc(p.word)} ${speakBtn}</div>
         <div class="qph">${esc(p.zh)}</div>
-        <p class="muted" style="margin-top:12px">用這個字寫一句英文（自己造句）</p>
         ${p.coll ? `<p class="tiny">常用搭配：${esc(p.coll)}</p>` : ''}
         <textarea class="txt" id="ans" placeholder="例如：I decided to ..."></textarea>
         <p class="tiny">這題不判對錯。寫完之後下載今日紀錄，Claude Code 會逐句批改。</p>`;
     } else if (p.type === 'gmc') {
       body = `<div class="qtag">文法 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
+        ${qask('選出<b>文法正確</b>的答案')}
         <div class="qsent">${esc(p.sentence).replace(/_{2,}/, '<span class="gap">?</span>')}</div>`;
     } else if (p.type === 'gfix') {
       body = `<div class="qtag">找錯改錯 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
-        <p class="muted">下面這句有一個錯，把<b>整句</b>改對重寫一次</p>
+        ${qask('這句有<b>一個錯</b>，把<b>整句</b>改對重寫')}
         <div class="qsent" style="color:var(--red)">${esc(p.sentence)}</div>
         <textarea class="txt" id="ans" placeholder="寫出改正後的整句"></textarea>`;
     }
@@ -3096,6 +3106,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
 
   window.__run = () => run;          // 測試接縫：讓 test-ui.js 能檢查目前關卡狀態
   window.__meme = (key, sub) => memeLine(key, sub);   // 測試接縫：驗證台詞不會連續重複
+  window.__drawQuestion = () => drawQuestion();       // 測試接縫：直接渲染指定題目來檢查版面
 
   // ---------------- 錯誤攔截 ----------------
   /* 事件處理器一旦拋錯，畫面會停在原地、按鈕像是「壞掉沒反應」。

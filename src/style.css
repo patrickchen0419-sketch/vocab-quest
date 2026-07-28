@@ -145,6 +145,20 @@ body {
 .progressline > i { display: block; height: 100%; background: var(--blue); transition: width .3s; }
 
 .qcard { text-align: center; padding: 22px 16px; }
+/* 題目要求：比單字小、但比說明文字大很多，而且顏色搶眼 —— 一眼就知道這題要做什麼 */
+.qask {
+  font-size: 20px; font-weight: 800; line-height: 1.45;
+  color: var(--tx); margin: 0 auto 14px; max-width: 640px;
+  padding: 9px 16px; border-radius: 12px;
+  background: rgba(52, 211, 166, .10); border: 1px solid var(--ac2);
+}
+.qask b { color: var(--ac); }
+.qask b.hot {                       /* 例如「請選出它的 複數」裡的「複數」 */
+  color: #2b1c00; background: linear-gradient(180deg, #ffd76a, var(--gold));
+  padding: 2px 12px; border-radius: 9px; font-size: 23px; display: inline-block;
+}
+.qask .qasksub { font-size: 13px; font-weight: 600; color: var(--tx2); }
+@media (max-width: 520px) { .qask { font-size: 17px; } .qask b.hot { font-size: 20px; } }
 .qtag { font-size: 12.5px; color: var(--tx3); letter-spacing: 1px; margin-bottom: 10px; text-transform: uppercase; }
 .qword { font-size: 34px; font-weight: 800; letter-spacing: .5px; word-break: break-word; }
 .qword.zh { font-size: 26px; }

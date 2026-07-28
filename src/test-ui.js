@@ -1194,6 +1194,44 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   if (r) r.inStage = false;
 });
 
+console.log('\n--- 題目要求要夠明顯 ---');
+t('每一種題型都有醒目的「這題要做什麼」橫幅', () => {
+  // 直接生題目、走 drawQuestion 的渲染路徑，逐一檢查
+  const want = {
+    e2c: '中文意思', c2e: '英文單字', listen: '聽發音', spell: '拼出',
+    form: '請選出它的', cloze: '填進空格', order: '排成正確的英文句子', trans: '填入',
+  };
+  const w = V.find(x => x.w === 'issue');
+  Object.keys(want).forEach(kind => {
+    let q = null;
+    for (let k = 0; k < 200 && !q; k++) {
+      const cand = Q.gen[kind] ? Q.gen[kind](w) : (Q.apply[kind] ? Q.apply[kind](w) : null);
+      if (cand) q = cand;
+    }
+    if (!q) return;                       // 這個字生不出這種題型就跳過
+    window.__run().qs = [q];
+    window.__run().idx = 0;
+    window.__drawQuestion();
+    assert(doc.querySelector('.qask'), `${kind} 沒有題目要求橫幅`);
+    assert(has(want[kind]), `${kind} 的要求文字不對：` + txt().slice(0, 300));
+  });
+});
+
+t('詞形變化題把「要哪一種變化」做得最大', () => {
+  const w = V.find(x => x.ex && x.ex.s) || V.find(x => x.ex && Object.keys(x.ex).length);
+  let q = null;
+  for (let k = 0; k < 200 && !q; k++) q = Q.gen.form(w);
+  assert(q, '生不出詞形變化題');
+  window.__run().qs = [q];
+  window.__run().idx = 0;
+  window.__drawQuestion();
+  assert(has('請選出它的'), '沒有要求文字');
+  assert(doc.querySelector('.qask b'), '要求裡沒有強調的部分');
+  assert(txt().includes('hot'), '要問的形式沒有用最醒目的樣式');
+  assert(has(q.prompt.ask), '沒顯示要選哪一種變化：' + q.prompt.ask);
+  window.__run().inStage = false;
+});
+
 console.log('\n--- 誤觸保護與檢討畫面 ---');
 t('換題後的極短時間內不接受作答（避免上一題的連點誤答新題）', () => {
   window.__guardMs = 250;                       // 打開保護來驗證
