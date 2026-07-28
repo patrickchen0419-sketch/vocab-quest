@@ -1515,10 +1515,20 @@
     };
   }
 
+  /* 挑戰任務「領完就換下一個」：
+     每個類別（連擊／題型／探索）有一份當天固定的洗牌順序，
+     已經領過幾個，就往後推幾個 —— 所以看板上不會一直掛著已經做完的任務。
+     固定任務與今日主打關不換（那是當天的骨幹），完成的會被收到看板下方。 */
   function questList(dstr) {
     const t = dstr || todayStr(), rnd = seeded(t);
-    const picked = ['combo', 'kind', 'explore'].map(cat =>
-      Object.assign({ tag: QUEST_TAG[cat] }, pickN(QUEST_POOL[cat], 1, rnd)[0]));
+    const claimed = day(t).quests || {};
+    const picked = ['combo', 'kind', 'explore'].map(cat => {
+      const pool = QUEST_POOL[cat];
+      const order = pickN(pool, pool.length, rnd);          // 同一天的順序固定
+      const doneN = order.filter(q => claimed[q.id]).length;
+      const cur = order[Math.min(doneN, order.length - 1)];
+      return Object.assign({ tag: QUEST_TAG[cat] }, cur);
+    });
     const sp = specialQuest(t);
     // 有訂衝刺目標的話，「今天的配額」本身就是一個任務（獎勵比一般任務高）
     const gs = goalStat(t);
@@ -1604,7 +1614,13 @@
       d.questLog.push(row);
       got.push(Object.assign({}, q, { at: row.at }));
     };
-    questStatus(t).forEach(q => { if (q.done && !q.claimed) give(q, () => { d.quests[q.id] = true; }); });
+    /* 領完一個挑戰任務會馬上換上下一個；如果下一個剛好也已經達成（例如連擊 10 與 20
+       同時滿足），就繼續發下去。最多跑 4 輪，避免任何意外的無限迴圈。 */
+    for (let round = 0; round < 4; round++) {
+      const pend = questStatus(t).filter(q => q.done && !q.claimed);
+      if (!pend.length) break;
+      pend.forEach(q => give(q, () => { d.quests[q.id] = true; }));
+    }
     ['week', 'month'].forEach(period => {
       periodQuestStatus(period, t).forEach(q => {
         if (q.done && !q.claimed) give(q, () => { periodClaims(q.periodKey)[q.id] = true; });

@@ -555,7 +555,7 @@ t('道具預設不使用：沒勾就不會被吃掉', () => {
   click('[data-maplv="2"]');
   fire('click', doc.querySelector('[data-mapletter]'));
   assert(has('這一關要用道具嗎'), '選字數畫面沒有道具勾選區：' + txt().slice(0, 300));
-  assert(doc.querySelector('[data-useitem="heart"]'), '沒有護心符的勾選鈕');
+  assert(doc.querySelector('[data-useitem="heart:1"]'), '沒有護心符的勾選鈕');
   fire('click', doc.querySelector('[data-startstage]'));
   let guard = 0;
   while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
@@ -580,13 +580,59 @@ t('用了道具時，關卡上方會顯示用了什麼', () => {
   goHome();
   click('[data-maplv="2"]');
   fire('click', doc.querySelector('[data-mapletter]'));
-  click('[data-useitem="heart"]');
-  assert(has('✓ 護心符'), '勾選後沒有打勾標示：' + txt().slice(0, 400));
+  click('[data-useitem="heart:1"]');
+  assert(doc.querySelector('.itemrow.on'), '勾選後沒有標示已選：' + txt().slice(0, 400));
   fire('click', doc.querySelector('[data-startstage]'));
   let guard = 0;
   while (doc.querySelector('[data-act="nextCard"]') && guard++ < 60) press(' ');
   assert(has('🧪 護心符'), '關卡上方沒顯示使用中的道具：' + txt().slice(0, 400));
   const r = window.__run(); if (r) r.inStage = false;
+});
+
+t('道具可以選「用幾個」，效果會疊加', () => {
+  S.profile.inventory = { heart: 3, hourglass: 2, xp2: 2 };
+  S.setDifficulty('normal');
+  const base = S.diff().hearts;
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  assert(doc.querySelector('[data-useitem="heart:1"]'), '沒有加號按鈕');
+  assert(doc.querySelector('[data-useitem="heart:-1"]'), '沒有減號按鈕');
+  click('[data-useitem="heart:1"]');
+  click('[data-useitem="heart:1"]');                    // 用 2 個護心符
+  assert(has('♥' + (base + 2)), `血量預覽沒有疊加到 ${base + 2}：` + txt().slice(0, 500));
+  click('[data-useitem="hourglass:1"]');
+  click('[data-useitem="hourglass:1"]');                // 兩個沙漏 = 時間 ×2
+  assert(has('×2'), '時間沒有疊加：' + txt().slice(0, 500));
+  click('[data-useitem="heart:-1"]');                   // 減一個回來
+  assert(has('♥' + (base + 1)), '減號沒生效');
+  // 持有數是上限
+  for (let k = 0; k < 6; k++) click('[data-useitem="heart:1"]');
+  assert(has('♥' + (base + 3)), '不該超過持有數：' + txt().slice(0, 500));
+  fire('click', doc.querySelector('[data-startstage]'));
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 60) press(' ');
+  const r = window.__run();
+  assert(r.maxHearts === base + 3, `血量沒吃到 3 個護心符：${r.maxHearts}`);
+  assert(r.timeMul === 2, '兩個沙漏應該是時間 ×2：' + r.timeMul);
+  assert(!S.inventory().heart, '護心符沒有全部消耗');
+  assert(!S.inventory().hourglass, '沙漏沒有全部消耗');
+  assert(S.inventory().xp2 === 2, '沒選的 XP 卡不該被消耗');
+  assert(has('護心符 ×3'), '關卡上方沒顯示用了幾個：' + txt().slice(0, 400));
+  r.inStage = false;
+});
+
+t('「全部用滿」與「全部取消」', () => {
+  S.profile.inventory = { heart: 2, xp2: 1 };
+  goHome();
+  click('[data-maplv="2"]');
+  fire('click', doc.querySelector('[data-mapletter]'));
+  click('[data-act="maxItems"]');
+  const base = S.diff().hearts;
+  assert(has('♥' + (base + 2)), '全部用滿沒生效：' + txt().slice(0, 500));
+  assert(has('XP <b style="color:var(--gold)">×2') || has('×2'), 'XP 卡沒算進去');
+  click('[data-act="clearItems"]');
+  assert(has('目前不使用任何道具'), '全部取消沒生效：' + txt().slice(0, 500));
 });
 
 t('勾了才用：血量／時間／XP 倍率照勾選生效，用完就清空', () => {
@@ -595,8 +641,8 @@ t('勾了才用：血量／時間／XP 倍率照勾選生效，用完就清空',
   goHome();
   click('[data-maplv="2"]');
   fire('click', doc.querySelector('[data-mapletter]'));
-  click('[data-useitem="heart"]');
-  click('[data-useitem="hourglass"]');
+  click('[data-useitem="heart:1"]');
+  click('[data-useitem="hourglass:1"]');
   assert(has('♥' + (baseHearts + 1)), '沒有即時預覽血量變化：' + txt().slice(0, 400));
   fire('click', doc.querySelector('[data-startstage]'));
   let guard = 0;
@@ -806,6 +852,20 @@ t('任務看板有三個分頁，每個任務都有進度條', () => {
   assert(has('本月'), '沒切到每月任務');
   click('[data-qtab="day"]');
   assert(has('通關 1 個字母關'), '沒切回每日任務');
+});
+
+t('看板把沒完成的排前面，完成的收到下面', () => {
+  const d = S.day();
+  d.quests = {}; d.questDone = {}; d.cleared = 1;
+  S.questStatus();                                  // 讓 clear1 達成
+  goHome();
+  assert(has('已完成'), '沒有把完成的任務收到「已完成」區：' + txt().slice(0, 400));
+  const html = txt();
+  const doneIdx = html.indexOf('已完成');
+  const clear1Idx = html.indexOf('通關 1 個字母關');
+  assert(clear1Idx > doneIdx, '完成的任務應該排在「已完成」標題後面');
+  assert(doc.querySelector('.quests.done-list'), '沒有已完成清單的樣式');
+  d.cleared = 0; d.quests = {}; d.questDone = {};
 });
 
 t('達成過的任務在畫面上維持已完成，不會退回', () => {
@@ -1699,6 +1759,23 @@ t('首頁與頂端都會提醒「背包裡有幾個沒開的寶箱」', () => {
   click('[data-go="bag"]');
   goHome();
   assert(!has('個沒開的寶箱'), '清空後首頁不該還有提醒');
+});
+
+t('鑰匙可以一次全用：N 把 → N 箱 → 一次全開', () => {
+  S.profile.materials = { key: 3 };
+  S.profile.chestBag = [];
+  goHome(); click('[data-go="bag"]');
+  assert(has('一次用掉全部鑰匙'), '背包沒有一次全用的按鈕：' + txt().slice(0, 400));
+  assert(has('3 把'), '沒顯示鑰匙數量');
+  const coinsBefore = S.coins(), logBefore = S.chestLog().length;
+  click('[data-act="useAllKeys"]');
+  assert(has('開了 3 箱'), '沒有一次開 3 箱：' + txt().slice(0, 300));
+  assert(S.chestLog().length === logBefore + 3, '寶箱紀錄應該多 3 筆');
+  assert(S.coins() > coinsBefore, '金幣沒入帳');
+  // 鑰匙本身可能又開出鑰匙，所以只檢查「至少用掉了」
+  const back = S.chestLog().slice(0, 3).reduce((a, r) => a + (r.drops || []).filter(d => d.mat === 'key').reduce((b, d) => b + d.n, 0), 0);
+  assert(S.matCount('key') === back, `鑰匙沒全部用掉（剩 ${S.matCount('key')}，這次開出 ${back}）`);
+  assert(S.chestBag().length === 0, '換來的箱子應該都開完了');
 });
 
 t('背包可以用鑰匙開箱，同樣走全螢幕演出', () => {

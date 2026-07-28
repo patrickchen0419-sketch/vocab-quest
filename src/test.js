@@ -1038,6 +1038,44 @@ t('每個任務都有目前進度與目標，可以畫進度條', () => {
   });
 });
 
+t('挑戰任務領完會換下一個，不會一直掛著做完的', () => {
+  const t2 = '2026-07-28';
+  const d = S.day(t2);
+  d.quests = {}; d.questDone = {};
+  const first = S.questList(t2).filter(q => ['連擊', '題型', '探索'].includes(q.tag));
+  assert(first.length === 3, '應該有三個挑戰任務');
+  // 假裝領走了「連擊」那一個
+  const combo1 = first.find(q => q.tag === '連擊');
+  d.quests[combo1.id] = true;
+  const second = S.questList(t2).filter(q => q.tag === '連擊');
+  assert(second.length === 1, '連擊任務應該還是只有一個');
+  assert(second[0].id !== combo1.id, `領完之後應該換一個新的（還是 ${combo1.id}）`);
+  // 其他類別不受影響
+  const kind1 = first.find(q => q.tag === '題型');
+  const kindNow = S.questList(t2).find(q => q.tag === '題型');
+  assert(kindNow.id === kind1.id, '沒領的類別不該被換掉');
+  // 固定任務與主打關不換
+  d.quests.clear1 = true;
+  assert(S.questList(t2).some(q => q.id === 'clear1'), '固定任務不該被換掉');
+  d.quests = {}; d.questDone = {};
+});
+
+t('連續領獎會一路換下去（同一輪就把已達成的都發完）', () => {
+  const t2 = '2026-07-29';
+  const d = S.day(t2);
+  d.quests = {}; d.questDone = {}; d.questLog = [];
+  d.cleared = 5; d.bestCombo = 30;                 // 一次滿足很多任務
+  d.log = []; d.runs = [];
+  const got = S.awardQuests(t2);
+  const ids = got.map(q => q.id);
+  assert(new Set(ids).size === ids.length, '同一個任務被重複發獎：' + ids);
+  assert(got.length >= 2, '應該一次發掉多個已達成的任務：' + ids);
+  // 發完之後，看板上的挑戰任務都應該是還沒完成的（或者池子已經用完）
+  const left = S.questList(t2).filter(q => ['連擊', '題型', '探索'].includes(q.tag));
+  assert(left.length === 3, '挑戰任務數量應該維持 3 個');
+  d.quests = {}; d.questDone = {}; d.cleared = 0; d.bestCombo = 0;
+});
+
 t('每日任務有多種類別，且每天固定不變', () => {
   const tags = new Set(S.questList('2026-07-25').map(q => q.tag));
   ['基本', '連擊', '題型', '探索'].forEach(x => assert(tags.has(x), '缺少任務類別：' + x));

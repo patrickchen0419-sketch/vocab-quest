@@ -316,13 +316,20 @@
       return `<button class="pill ${qtab === k ? 'on' : ''}" data-qtab="${k}">${n} ${l.filter(q => q.done).length}/${l.length}</button>`;
     }).join('');
     const sp = list.find(q => q.tag === '主打');
+    // 沒完成的排前面；完成的收到下面（挑戰任務領完會自動換新的，不會一直掛在那）
+    const todo = list.filter(q => !q.done);
+    const finished = list.filter(q => q.done);
     return `<div class="card">
       <h2>任務看板 <span class="tiny">${done}/${list.length} 達成</span></h2>
       <div class="pills">${tabs}</div>
       ${bar('本頁任務達成度', done, list.length, `${done}/${list.length}`, 'g-gold')}
-      <div class="quests">${list.map(questRow).join('')}</div>
+      ${todo.length ? `<div class="quests">${todo.map(questRow).join('')}</div>`
+      : '<p class="muted" style="margin-top:10px">🎉 這一頁的任務都完成了！</p>'}
+      ${finished.length ? `<h3 style="margin-top:14px">✅ 已完成 ${finished.length} 項</h3>
+        <div class="quests done-list">${finished.map(questRow).join('')}</div>` : ''}
       ${sp && !sp.done ? `<div class="btnrow"><button class="btn gold" data-mapletter="${sp.lv}:${sp.letter}">🎯 直接去主打關（第 ${sp.lv} 級 ${sp.letter}）</button></div>` : ''}
-      <p class="tiny">任務一旦達成就永久記住（時間會記在紀錄裡），不會因為之後數字變動而退回未完成。獎勵在關卡結算時自動入帳。</p>
+      <p class="tiny">達成就永久記住（時間記在紀錄裡），不會因為之後數字變動而退回未完成。獎勵在關卡結算時自動入帳。
+        <b>挑戰任務（連擊／題型／探索）領獎後會自動換上下一個</b>，看板不會一直掛著做完的東西。</p>
     </div>`;
   }
 
@@ -1809,15 +1816,32 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
 
   /* 開關前可以選用的消耗品（刪去法與復活石是關卡中手動用，不在這裡）。
      預設一個都不用 —— 道具很貴，不該因為「持有」就被自動吃掉。 */
+  /* 每種道具都可以選「用幾個」：
+     血量是相加（護心符 +1、大護心符 +3），時間是相加倍率（沙漏 +50%、大沙漏 +100%），
+     XP 卡是相乘但封頂 ×5（免得一次燒十張變成刷分）。 */
   const PRE_ITEMS = [
-    { id: 'bigheart', short: '大護心符 ♥+3', hearts: 3 },
-    { id: 'heart', short: '護心符 ♥+1', hearts: 1 },
-    { id: 'hourglass2', short: '大沙漏 時間×2', time: 2 },
-    { id: 'hourglass', short: '沙漏 時間+50%', time: 1.5 },
-    { id: 'xp3', short: '三倍 XP 卡', xp: 3 },
-    { id: 'xp2', short: '雙倍 XP 卡', xp: 2 },
+    { id: 'bigheart', short: '大護心符', eff: '♥+3', hearts: 3 },
+    { id: 'heart', short: '護心符', eff: '♥+1', hearts: 1 },
+    { id: 'hourglass2', short: '大沙漏', eff: '時間+100%', timeAdd: 1 },
+    { id: 'hourglass', short: '沙漏', eff: '時間+50%', timeAdd: 0.5 },
+    { id: 'xp3', short: '三倍 XP 卡', eff: 'XP ×3', xpMul: 3 },
+    { id: 'xp2', short: '雙倍 XP 卡', eff: 'XP ×2', xpMul: 2 },
   ];
-  let useItems = {};                 // 這一關要用哪些道具（勾選狀態）
+  const XP_CAP = 5;                  // XP 卡疊加的上限
+  let useItems = {};                 // 這一關各用幾個：{ heart: 2, hourglass: 1 }
+
+  /** 依目前的選擇算出這一關的血量／時間／XP 倍率。 */
+  function itemEffect() {
+    let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
+    PRE_ITEMS.forEach(it => {
+      const n = Math.min(useItems[it.id] || 0, S.inventory()[it.id] || 0);
+      if (!n) return;
+      if (it.hearts) hearts += it.hearts * n;
+      if (it.timeAdd) timeMul += it.timeAdd * n;
+      if (it.xpMul) xpCard = Math.min(XP_CAP, xpCard * Math.pow(it.xpMul, n));
+    });
+    return { hearts, timeMul: Math.round(timeMul * 100) / 100, xpCard: Math.round(xpCard * 100) / 100 };
+  }
 
   /** 選字數畫面上的道具勾選區；沒有任何消耗品就不顯示。 */
   function itemPicker() {
@@ -1829,21 +1853,30 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
           商店買得到，背包的合成台也做得出來；有了之後這裡就會出現勾選鈕，<b>勾了才會消耗</b>。</p>
       </div>`;
     }
-    let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
-    own.forEach(it => {
-      if (!useItems[it.id]) return;
-      if (it.hearts) hearts += it.hearts;
-      if (it.time) timeMul = Math.max(timeMul, it.time);
-      if (it.xp) xpCard = Math.max(xpCard, it.xp);
-    });
+    const eff = itemEffect();
     const any = own.some(it => useItems[it.id]);
+    const rows = own.map(it => {
+      const have = S.inventory()[it.id] || 0;
+      const n2 = Math.min(useItems[it.id] || 0, have);
+      return `<div class="itemrow ${n2 ? 'on' : ''}">
+        <div class="iname"><b>${esc(it.short)}</b><span class="tiny">${esc(it.eff)}　持有 ${have}</span></div>
+        <div class="stepper">
+          <button class="btn sm" data-useitem="${it.id}:-1" ${n2 ? '' : 'disabled'}>−</button>
+          <b class="num">${n2}</b>
+          <button class="btn sm" data-useitem="${it.id}:1" ${n2 < have ? '' : 'disabled'}>＋</button>
+        </div>
+      </div>`;
+    }).join('');
     return `<div class="card itemcard" style="margin-top:14px">
-      <h3>🧪 這一關要用道具嗎？<span class="tiny">${any ? '已選好，開始就會消耗' : '預設不用，點一下才會用'}</span></h3>
-      <div class="pills">${own.map(it =>
-      `<button class="pill ${useItems[it.id] ? 'on' : ''}" data-useitem="${it.id}">${useItems[it.id] ? '✓ ' : ''}${esc(it.short)}　<span class="tiny">持有 ${S.inventory()[it.id]}</span></button>`).join('')}</div>
-      <p class="muted" style="margin-top:8px">這一關會是：<b style="color:var(--red)">♥${hearts}</b>　時間 <b style="color:var(--blue)">×${timeMul}</b>　XP <b style="color:var(--gold)">×${xpCard}</b>
+      <h3>🧪 這一關要用道具嗎？<span class="tiny">${any ? '已選好，開始就會消耗' : '預設不用，按 ＋ 才會用'}</span></h3>
+      <div class="itemlist">${rows}</div>
+      <p class="muted" style="margin-top:10px">這一關會是：<b style="color:var(--red)">♥${eff.hearts}</b>　時間 <b style="color:var(--blue)">×${eff.timeMul}</b>　XP <b style="color:var(--gold)">×${eff.xpCard}</b>
         ${any ? '' : '（目前不使用任何道具）'}</p>
-      <p class="tiny">勾了才會消耗，同類型只生效最強的一個；這一關結束就自動取消勾選。</p>
+      <div class="btnrow">
+        ${own.length ? '<button class="btn sm" data-act="maxItems">全部用滿</button>' : ''}
+        ${any ? '<button class="btn sm ghost" data-act="clearItems">全部取消</button>' : ''}
+      </div>
+      <p class="tiny">可以選要用幾個：血量與時間相加，XP 卡相乘（最多 ×${XP_CAP}）。這一關結束就自動歸零。</p>
     </div>`;
   }
 
@@ -1891,13 +1924,17 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const used = [];
     let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
     PRE_ITEMS.forEach(it => {
-      if (!useItems[it.id] || !S.owned(it.id)) return;
-      if (!S.consume(it.id)) return;
-      if (it.hearts) hearts += it.hearts;
-      if (it.time) timeMul = Math.max(timeMul, it.time);
-      if (it.xp) xpCard = Math.max(xpCard, it.xp);
-      used.push(it.short);
+      const want = Math.min(useItems[it.id] || 0, S.inventory()[it.id] || 0);
+      let got = 0;
+      for (let k = 0; k < want; k++) { if (S.consume(it.id)) got++; }
+      if (!got) return;
+      if (it.hearts) hearts += it.hearts * got;
+      if (it.timeAdd) timeMul += it.timeAdd * got;
+      if (it.xpMul) xpCard = Math.min(XP_CAP, xpCard * Math.pow(it.xpMul, got));
+      used.push(`${it.short}${got > 1 ? ' ×' + got : ''}`);
     });
+    timeMul = Math.round(timeMul * 100) / 100;
+    xpCard = Math.round(xpCard * 100) / 100;
     useItems = {};                                   // 用過就清空，不會被下一關偷吃
     if (used.length) toast('這一關使用：' + used.join('、'));
     const go = () => runStage({
@@ -2238,7 +2275,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <h3>💠 素材</h3>
       <div class="mats">${matCards}</div>
       ${keys ? `<div class="btnrow" style="margin-top:10px">
-        <button class="btn gold big-btn" data-act="useKey">🔑 用鑰匙開一個銀寶箱（持有 ${keys}）</button></div>`
+        <button class="btn gold big-btn" data-act="useAllKeys">🔑 一次用掉全部鑰匙（${keys} 把 → ${keys} 箱）</button>
+        <button class="btn" data-act="useKey">只用一把</button></div>`
       : '<p class="tiny">🔑 寶箱鑰匙：三星通關有機會掉，或用金鑽石＋古卷軸合成，可以在這裡直接開一個銀寶箱。</p>'}
     </div>
 
@@ -2698,8 +2736,12 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (rv) { rv.outerHTML = `<span class="revealed">${rv.dataset.ans}</span>`; return; }
     const ui = t.closest('[data-useitem]');
     if (ui) {
-      const id = ui.dataset.useitem;
-      useItems[id] ? delete useItems[id] : (useItems[id] = true);
+      const [id, deltaStr] = String(ui.dataset.useitem).split(':');
+      const delta = +(deltaStr || 1);
+      const have = S.inventory()[id] || 0;
+      const cur = Math.min(useItems[id] || 0, have);
+      const next = Math.max(0, Math.min(have, cur + delta));
+      next ? (useItems[id] = next) : delete useItems[id];
       const m = window.__lastLetter;
       return m ? letterSetup(m.lv, m.letter) : home();
     }
@@ -3018,6 +3060,16 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       });
       return;
     }
+    if (a === 'maxItems') {
+      PRE_ITEMS.forEach(it => { const n2 = S.inventory()[it.id] || 0; if (n2) useItems[it.id] = n2; });
+      const m = window.__lastLetter;
+      return m ? letterSetup(m.lv, m.letter) : home();
+    }
+    if (a === 'clearItems') {
+      useItems = {};
+      const m = window.__lastLetter;
+      return m ? letterSetup(m.lv, m.letter) : home();
+    }
     if (a === 'resetKeys') { S.resetKeys(); keyCapture = null; toast('快速鍵已還原成預設'); return settings(); }
     if (a === 'clearGoal') { S.clearGoal(); toast('已取消衝刺目標'); return settings(); }
     if (a === 'cardPause') return pauseCards();
@@ -3032,6 +3084,13 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (a === 'chestLater') {                       // 全螢幕選箱畫面：先收起來
       toast('寶箱已收進背包，之後可以一次全開');
       return backFromChest();
+    }
+    if (a === 'useAllKeys') {
+      const keys = S.matCount('key');
+      if (!keys) return toast('沒有鑰匙');
+      for (let k = 0; k < keys; k++) { S.addMat('key', -1); S.addChest('silver', '寶箱鑰匙'); }
+      toast(`用掉 ${keys} 把鑰匙，換到 ${keys} 個銀寶箱`);
+      return openAllChests();
     }
     if (a === 'openOneChest') {
       const bag = S.chestBag();

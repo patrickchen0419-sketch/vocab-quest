@@ -383,6 +383,9 @@ nav.tabs .btn.on { background: var(--ac); color: #07231b; border-color: transpar
 .qrew b { color: var(--gold); font-size: 15px; }
 .qrew span { display: block; font-size: 10.5px; color: var(--tx3); }
 .qrew i { display: block; font-style: normal; font-size: 11px; color: var(--tx2); }
+/* 已完成的任務收在下面，淡一點，不跟待辦的搶注意力 */
+.quests.done-list { opacity: .6; }
+.quests.done-list .quest { padding: 7px 11px; }
 /* 任務類別標籤：每種一個顏色與形狀（斜角小旗） */
 .qtagb {
   flex: none; font-size: 11px; font-weight: 800; padding: 4px 9px;
@@ -570,6 +573,19 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 /* 道具勾選卡：用邊框和底色把它從「說明文字」提升成「要決定的事」 */
 .card.itemcard { border-color: var(--purple); background: linear-gradient(160deg, #2a2140 0%, var(--card) 60%); }
 .card.itemcard .pill.on { background: var(--purple); color: #17062e; border-color: transparent; }
+/* 道具數量選擇器：一行一種道具，右邊是 − 數字 ＋ */
+.itemlist { display: grid; gap: 8px; margin-top: 10px; }
+.itemrow {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px;
+}
+.itemrow.on { border-color: var(--purple); background: rgba(169, 131, 255, .12); }
+.itemrow .iname { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.itemrow .iname b { font-size: 14px; }
+.stepper { display: flex; align-items: center; gap: 8px; flex: none; }
+.stepper .btn.sm { min-width: 34px; padding: 5px 10px; font-size: 16px; line-height: 1; }
+.stepper .num { min-width: 24px; text-align: center; font-size: 17px; font-weight: 900; }
+.itemrow.on .stepper .num { color: var(--purple); }
 
 /* ================= 蓋住的答案 ================= */
 .revealbtn {
