@@ -1215,10 +1215,10 @@
     { day: 7, xp: 180, coin: 110, chest: 'gold' },
   ];
   const CHECKIN_MILESTONE = {
-    14: { xp: 300, coin: 200, item: 'xp2', note: '連續兩週！' },
-    30: { xp: 700, coin: 500, item: 'revive', unlock: 'title_scholar', note: '一整個月不斷！' },
-    60: { xp: 1500, coin: 1000, item: 'xp3', unlock: 'theme_night', note: '兩個月！' },
-    100: { xp: 3000, coin: 2000, unlock: 'title_hero', note: '一百天，這已經是傳說了。' },
+    14: { xp: 300, coin: 200, item: 'xp2', chest: 'gold', note: '連續兩週！' },
+    30: { xp: 700, coin: 500, item: 'revive', unlock: 'title_scholar', chest: 'rainbow', note: '一整個月不斷！' },
+    60: { xp: 1500, coin: 1000, item: 'xp3', unlock: 'theme_night', chest: 'rainbow', note: '兩個月！' },
+    100: { xp: 3000, coin: 2000, unlock: 'title_hero', chest: 'rainbow', note: '一百天，這已經是傳說了。' },
   };
   /** 這個連續天數落在軌道的第幾天／第幾輪。 */
   function checkinSlot(streak) {
@@ -1253,10 +1253,13 @@
     const xp = Math.round(slot.xp * mul), coin = Math.round(slot.coin * mul);
     const inv = inventory();
     if (slot.item) inv[slot.item] = (inv[slot.item] || 0) + 1;
+    // 第 7 天的金寶箱要真的發出來 —— 直接進背包，之後可以一次全開
+    if (slot.chest) addChest(slot.chest, `每日簽到 第 ${sl.day} 天`);
     const ms = CHECKIN_MILESTONE[streak] || null;
     if (ms) {
       if (ms.item) inv[ms.item] = (inv[ms.item] || 0) + 1;
       if (ms.unlock && !inv[ms.unlock]) inv[ms.unlock] = 1;
+      if (ms.chest) addChest(ms.chest, `連續 ${streak} 天里程碑`);
     }
     const totalXp = xp + (ms ? ms.xp : 0), totalCoin = coin + (ms ? ms.coin : 0);
     d.checkin = {

@@ -1320,6 +1320,27 @@ t('通關的寶箱先存進背包，可以指定開或一次全開', () => {
   assert(S.coins() === r.coin, '金幣沒入帳');
 });
 
+t('所有寶箱來源都會流進背包（通關、鑰匙、簽到第 7 天、里程碑）', () => {
+  const p = S.profile;
+  p.chestBag = []; p.coins = 0; p.inventory = {}; p.materials = {};
+  // 簽到第 7 天：軌道上寫了金寶箱，就必須真的發出來
+  p.streak = 7;
+  const d = S.day();
+  delete d.checkin; d.questLog = [];
+  const c = S.checkIn();
+  assert(c && c.chest === 'gold', '第 7 天應該有金寶箱：' + JSON.stringify(c && c.chest));
+  assert(S.chestBag().length === 1, '簽到的金寶箱沒有進背包（只寫在紀錄裡不算數）');
+  assert(S.chestBag()[0].tier === 'gold', '簽到給的不是金寶箱');
+  assert(/簽到/.test(S.chestBag()[0].from), '沒記錄寶箱來源：' + S.chestBag()[0].from);
+  // 里程碑（連續 30 天）要再給一個彩虹寶箱
+  p.chestBag = []; p.streak = 30;
+  delete S.day().checkin;
+  const c2 = S.checkIn();
+  assert(c2.milestone, '第 30 天應該有里程碑');
+  assert(S.chestBag().some(x => x.tier === 'rainbow'), '里程碑的彩虹寶箱沒進背包');
+  p.streak = 1;
+});
+
 t('一次全開會清空背包並回報總計', () => {
   const p = S.profile;
   p.chestBag = []; p.coins = 0; p.xp = 0; p.inventory = {}; p.materials = {};

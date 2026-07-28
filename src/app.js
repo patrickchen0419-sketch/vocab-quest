@@ -174,6 +174,7 @@
       <span class="chip lvl">Lv.${st.level}</span>
       <span class="chip xp">${p.xp} XP</span>
       <span class="chip coin">🪙 ${S.coins()}</span>
+      ${(() => { const n = S.chestBagSummary().total; return n ? `<span class="chip" style="color:var(--gold)">🎁 ${n}</span>` : ''; })()}
     </div><div class="topbar-in"><div class="xpbar" style="flex:1"><i style="width:${pct}%"></i></div></div></div>`;
   }
   /** 頁首：返回鈕貼在標題旁邊，右上角是設定齒輪（關卡中用來暫停／離開）。 */
@@ -367,6 +368,23 @@
         </div>
         <p class="tiny">🔥 連續學習 ${pg.streak} 天　⚡ ${S.winStreak()} 連勝（最佳 ${S.bestWinStreak()}）　⏱ 今天已學 ${fmtSec(todaySec)}　✍ 今日 ${sum.reviewTotal + sum.applyTotal} 題</p>
       </div>
+
+      ${(() => {
+        const cb = S.chestBagSummary();
+        if (!cb.total) return '';
+        return `<div class="card chestcard">
+          <h2>🎁 背包裡有 ${cb.total} 個沒開的寶箱</h2>
+          <div class="chestrow" style="flex-wrap:wrap">
+            ${S.CHEST_ORDER.filter(t => cb.byTier[t]).map(t =>
+          `<span class="loot item">${S.CHEST[t].icon} ${esc(S.CHEST[t].name)} ×${cb.byTier[t]}</span>`).join('')}
+          </div>
+          <div class="btnrow" style="margin-top:10px">
+            <button class="btn gold big-btn" data-act="openAllChests">🎉 一次全開</button>
+            <button class="btn" data-go="bag">去背包看看</button>
+          </div>
+          <p class="tiny">寶箱不會過期。想累積成就感就先存著，之後一次開完。</p>
+        </div>`;
+      })()}
 
       ${goalCard()}
 
@@ -1139,7 +1157,7 @@
       ${passed ? `<div class="big" style="color:var(--ac);margin-top:14px">+${xpGain} XP　<span style="color:var(--gold)">+${coinGain} 🪙</span></div>
         <div class="tiny">${bonusNote}</div>
         ${S.winStreak() >= 2 ? `<p class="tiny" style="color:var(--blue)">⚡ ${S.winStreak()} 連勝　下一關 XP +${Math.round(S.winStreakBonus() * 100)}%</p>` : ''}
-        ${checkin ? `<p class="tiny">每日簽到 +${checkin.xp} XP　+${checkin.coin} 🪙</p>` : ''}` : ''}
+        ${checkin ? `<p class="tiny">每日簽到 +${checkin.xp} XP　+${checkin.coin} 🪙${checkin.chest ? `　💎 金寶箱（已放進背包）` : ''}</p>` : ''}` : ''}
       ${drops.length ? `<div class="lootrow">${drops.map(x => {
         const m = S.material(x.id);
         return `<span class="loot item">${m.icon} ${esc(m.name)} ×${x.n}</span>`;

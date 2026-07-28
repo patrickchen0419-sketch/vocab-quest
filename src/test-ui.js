@@ -1685,6 +1685,22 @@ t('通關的寶箱可以先收起來，之後在背包一次全開', () => {
   assert(has('目前沒有存起來的寶箱'), '清空後的提示不對');
 });
 
+t('首頁與頂端都會提醒「背包裡有幾個沒開的寶箱」', () => {
+  S.profile.chestBag = [];
+  S.addChest('gold', '測試');
+  S.addChest('wood', '測試');
+  goHome();
+  assert(has('背包裡有 2 個沒開的寶箱'), '首頁沒有提醒：' + txt().slice(0, 400));
+  assert(has('🎁 2'), '頂端沒有寶箱數量：' + txt().slice(0, 300));
+  assert(doc.querySelector('[data-act="openAllChests"]'), '首頁沒有一次全開的按鈕');
+  click('[data-act="openAllChests"]');
+  assert(has('開了 2 箱'), '首頁的一次全開沒生效：' + txt().slice(0, 300));
+  assert(S.chestBag().length === 0, '全開後背包沒清空');
+  click('[data-go="bag"]');
+  goHome();
+  assert(!has('個沒開的寶箱'), '清空後首頁不該還有提醒');
+});
+
 t('背包可以用鑰匙開箱，同樣走全螢幕演出', () => {
   S.profile.materials = { key: 1 };
   goHome(); click('[data-go="bag"]');
