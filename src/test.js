@@ -1219,6 +1219,29 @@ t('新成就在條件達成時會解鎖（用假的統計驗證）', () => {
   p.badges = [];
 });
 
+t('舊存檔會補償先前被自動吃掉的道具，而且只補一次', () => {
+  const p = S.profile;
+  p.makeupOptIn = false; p.inventory = {}; p.coins = 0; p.xp = 500;   // 有進度＝老玩家
+  const got = S.grantMakeup();
+  assert(got, '老玩家應該拿到補償');
+  assert(S.inventory().heart === S.MAKEUP.heart, '護心符沒補到');
+  assert(S.coins() === 600, '金幣沒補到：' + S.coins());
+  assert(S.grantMakeup() === null, '補償重複發放');
+  const again = JSON.stringify(S.inventory());
+  S.grantMakeup();
+  assert(JSON.stringify(S.inventory()) === again, '重複呼叫改動了背包');
+});
+
+t('全新玩家不會拿到補償（本來就沒被燒過）', () => {
+  const p = S.profile, s = S.load();
+  const days = s.days;
+  s.days = {};
+  p.makeupOptIn = false; p.inventory = {}; p.coins = 0; p.xp = 0;
+  assert(S.grantMakeup() === null, '全新玩家不該拿補償');
+  assert(!Object.keys(S.inventory()).length, '不該給任何道具');
+  s.days = days;
+});
+
 console.log('\n--- 商店經濟（北歐物價）---');
 t('商品變多、有素材包、稱號只留三個', () => {
   assert(S.SHOP.length >= 30, '商品數太少：' + S.SHOP.length);
@@ -1515,6 +1538,25 @@ t('sweepStat 算得出還剩多少字沒篩、已篩掉多少', () => {
   assert(st.unseen + Object.keys(S.load().words).length === V.length, '未篩＋已見過應該等於全部字數');
   assert(st.claimed >= 1, '應該算得出自評已會的字數');
   assert(Object.keys(st.byLevel).length >= 1, '沒有分級統計');
+});
+
+t('複習不再抽已經練起來的字（box 5 以上），可以在設定打開', () => {
+  const s = S.load();
+  s.words = {};
+  const ids = V.filter(w => w.lv === 3).slice(0, 6).map(w => w.i);
+  const t2 = S.todayStr();
+  // 三個還不穩、三個已經進長期記憶，全部都到期
+  ids.slice(0, 3).forEach(i => { const r = S.rec(i); r.b = 2; r.due = t2; });
+  ids.slice(3).forEach(i => { const r = S.rec(i); r.b = 5; r.due = t2; });
+  S.settings.reviewMastered = false;
+  const due = S.dueList().map(x => x.i);
+  ids.slice(0, 3).forEach(i => assert(due.includes(i), '還不穩的字應該要複習'));
+  ids.slice(3).forEach(i => assert(!due.includes(i), '已經練起來的字不該再被抽：' + V[i].w));
+  S.settings.reviewMastered = true;
+  const all = S.dueList().map(x => x.i);
+  ids.slice(3).forEach(i => assert(all.includes(i), '打開設定後應該連長期記憶也複習'));
+  S.settings.reviewMastered = false;
+  s.words = {};
 });
 
 console.log('\n--- 衝刺目標 ---');

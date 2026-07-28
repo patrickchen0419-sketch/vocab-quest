@@ -745,3 +745,6 @@ kbd {
   .stat { border: 1px solid #ccc; }
   .muted, .tiny, .stat span { color: #444; }
 }
+
+/* 一個道具都沒有時，仍然把選擇器畫出來（灰的），讓人知道這個功能存在 */
+.itemrow.empty { opacity: .45; }

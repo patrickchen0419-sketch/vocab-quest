@@ -64,7 +64,7 @@
       streak: 0, bestStreak: 0,
       lastStudy: null,
       badges: [],
-      settings: Object.assign({}, COUNT_DEFAULTS, { difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75, memes: true, keyBar: true, offKinds: [] }),
+      settings: Object.assign({}, COUNT_DEFAULTS, { difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75, memes: true, keyBar: true, reviewMastered: false, sweepCheck: false, sweepBatch: 24, offKinds: [] }),
     },
     words: {},
     days: {},
@@ -323,10 +323,17 @@
   }
 
   // ---------- queues ----------
-  function dueList(cap) {
+  /* 複習清單。預設**不抽已經練起來的字**（box 5 以上＝長期記憶，間隔已經拉到 30／60 天）——
+     複習時間應該花在還不穩的字上。
+     代價要說清楚：完全不再抽查，久了真的忘掉也不會被發現，所以設定頁留了開關
+     （reviewMastered），想連長期記憶一起複習可以打開。 */
+  const MASTER_BOX = 5;
+  function dueList(cap, opts) {
     const s = load(), t = todayStr(), out = [];
+    const withMastered = (opts && opts.all) || !!load().profile.settings.reviewMastered;
     for (const k in s.words) {
       const r = s.words[k];
+      if (!withMastered && r.b >= MASTER_BOX) continue;      // 已會的字不進複習
       if (r.due && r.due <= t) out.push({ i: +k, over: daysBetween(r.due, t), b: r.b, weight: errWeight(+k) });
     }
     // 錯題優先：先看錯的權重，再看逾期天數與 box
@@ -857,6 +864,37 @@
     return p.coins;
   }
   function inventory() { const p = load().profile; return (p.inventory = p.inventory || {}); }
+
+  /* 新手包：第一次開啟時送幾個消耗品。
+     不是為了發糖，是因為道具系統（要不要用、用幾個）如果手上一個都沒有，
+     使用者只會看到「你沒有道具」，根本不知道那個功能存在。 */
+  const STARTER = { heart: 2, hourglass: 1, fifty: 2 };
+  /* 補償包：道具改成「自己選要不要用」之前，是每一關自動消耗的 ——
+     等於把玩家買來的護心符、沙漏、XP 卡默默燒掉了。那是設計失誤，不該由玩家承擔，
+     所以已經有進度的存檔會一次補回來（只補一次）。 */
+  const MAKEUP = { heart: 3, bigheart: 1, hourglass: 2, xp2: 2, fifty: 3 };
+  function grantMakeup() {
+    const s = load(), p = s.profile;
+    if (p.makeupOptIn) return null;
+    p.makeupOptIn = true;
+    const played = (p.xp || 0) > 0 || Object.keys(s.days || {}).length > 0;
+    if (!played) { save(true); return null; }        // 全新玩家沒被燒過，不用補
+    const inv = inventory();
+    Object.keys(MAKEUP).forEach(id => { inv[id] = (inv[id] || 0) + MAKEUP[id]; });
+    p.coins = (p.coins || 0) + 600;
+    save(true);
+    return Object.assign({ coins: 600 }, MAKEUP);
+  }
+  function grantStarter() {
+    const p = load().profile;
+    if (p.starterGiven) return null;
+    p.starterGiven = true;
+    const inv = inventory();
+    Object.keys(STARTER).forEach(id => { inv[id] = (inv[id] || 0) + STARTER[id]; });
+    p.coins = (p.coins || 0) + 150;
+    save(true);
+    return Object.assign({ coins: 150 }, STARTER);
+  }
   function owned(id) { return (inventory()[id] || 0) > 0; }
 
   function buy(id) {
@@ -1716,6 +1754,7 @@
     LETTERS, PASS_ACC, bucket, mapStat, levelStat, nextStage, recordStage,
     winStreak, bestWinStreak, winStreakBonus,
     SHOP, shopItem, coins, addCoins, inventory, owned, buy, consume, equip, equipped, stageCoins,
+    STARTER, grantStarter, MAKEUP, grantMakeup,
     UNIQUE_KINDS, isUnique,
     CHEST, CHEST_ORDER, CHEST_RULES, LOOT, chestTier, upgradeChest, openChest, chestLog, rollOne,
     chestBag, addChest, takeChest, openStored, openAllStored, chestBagSummary,

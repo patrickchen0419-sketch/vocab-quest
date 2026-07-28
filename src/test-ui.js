@@ -571,8 +571,9 @@ t('沒有道具時也要說明白「哪裡拿、怎麼用」', () => {
   click('[data-maplv="2"]');
   fire('click', doc.querySelector('[data-mapletter]'));
   assert(has('這一關要用道具嗎'), '沒有道具區塊');
-  assert(has('勾了才會消耗'), '沒有說明勾選規則');
-  assert(has('商店') && has('合成台'), '沒有告訴使用者去哪拿');
+  assert(has('這一關要用幾個'), '沒有說明可以選數量');
+  assert(doc.querySelectorAll('.itemrow.empty').length >= 4, '沒有把選擇器畫出來（灰的）');
+  assert(doc.querySelector('[data-go="shop"]') && doc.querySelector('[data-go="bag"]'), '沒有去商店／合成台的入口');
 });
 
 t('用了道具時，關卡上方會顯示用了什麼', () => {
@@ -1208,13 +1209,19 @@ t('首頁有快速篩選入口，並顯示還有多少字沒篩', () => {
   click('[data-go="sweep"]');
   assert(has('快速篩選') && has('只要點掉不會的'), '篩選頁不對：' + txt().slice(0, 250));
   assert(doc.querySelectorAll('[data-swlv]').length === 6, '沒有六個級別可選');
-  assert(has('隨機抽 2 個真的考'), '沒有說明抽考機制');
+  assert(has('直接通過，不用考'), '沒有說明「說會就直接過」：' + txt().slice(0, 400));
+  // 一批要看幾個字，可以自己選
+  assert(doc.querySelectorAll('[data-swsize]').length >= 4, '沒有批次大小的選項');
+  click('[data-swsize="40"]');
+  assert(S.settings.sweepBatch === 40, '批次大小沒存起來');
+  assert(has('開始篩（一批 40 字）'), '按鈕沒跟著批次大小改');
+  click('[data-swsize="24"]');
 });
 
-t('一批 12 個字，可以點掉不會的', () => {
+t('一批的字數照設定，可以點掉不會的', () => {
   click('[data-act="sweepGo"]');
   const cards = doc.querySelectorAll('[data-swpick]');
-  assert(cards.length === 12, '一批不是 12 個：' + cards.length);
+  assert(cards.length === (S.settings.sweepBatch || 24), '一批的字數跟設定不符：' + cards.length);
   assert(has('✓ 會'), '預設應該是「會」');
   fire('click', cards[0]);
   assert(doc.querySelectorAll('.swcard.no').length === 1, '點了卻沒標成不會');
@@ -1223,33 +1230,42 @@ t('一批 12 個字，可以點掉不會的', () => {
   assert(doc.querySelectorAll('.swcard.no').length === 0, '再點一次應該取消');
 });
 
-t('送出後抽考 2 題，答對就把整批算已會（不算新字）', () => {
+t('送出後直接通過，不用抽考（預設）', () => {
   const d = S.day();
   d.newIds = []; d.sweepKnown = []; d.sweepLearn = []; d.log = [];
+  const size = doc.querySelectorAll('[data-swpick]').length;
   // 點掉兩個當作「不會」
   const cards = doc.querySelectorAll('[data-swpick]');
   fire('click', cards[0]); fire('click', cards[1]);
   click('[data-act="sweepSubmit"]');
-  assert(has('抽考'), '沒進抽考：' + txt().slice(0, 200));
-  let guard = 0;
-  while (doc.querySelector('[data-swopt]') && guard++ < 5) {
-    const r = window.__run;   // 抽考不走 runStage，直接讀畫面的正解
-    const opts = doc.querySelectorAll('[data-swopt]');
-    // 從畫面找不到正解，就全部按第一個；正確與否兩種結果都要能收尾
-    fire('click', opts[0]);
-  }
-  assert(has('確認已會') || has('抽考沒過'), '抽考後沒有結算畫面：' + txt().slice(0, 250));
+  assert(!doc.querySelector('[data-swopt]'), '預設不該還有抽考題：' + txt().slice(0, 200));
+  assert(has('確認已會'), '沒有直接進結算：' + txt().slice(0, 250));
   const sum = S.summary();
-  assert(sum.sweepKnown + sum.sweepLearn === 12, `12 個字應該全部有歸屬：已會 ${sum.sweepKnown} + 待學 ${sum.sweepLearn}`);
+  assert(sum.sweepKnown + sum.sweepLearn === size, `${size} 個字應該全部有歸屬：已會 ${sum.sweepKnown} + 待學 ${sum.sweepLearn}`);
   assert(sum.sweepLearn >= 2, '點掉的兩個字應該進待學');
   assert(sum.newCount === 0, '篩選不該算成今天學的新字');
-  assert(sum.sweepTotal >= 1, '抽考題數沒記錄');
+  assert(sum.sweepTotal === 0, '預設不抽考就不該有抽考題數');
+});
+
+t('想更嚴格的話，設定可以打開「篩選時抽考 2 題」', () => {
+  S.settings.sweepCheck = true;
+  click('[data-act="sweepNext"]');
+  const cards = doc.querySelectorAll('[data-swpick]');
+  assert(cards.length >= 4, '沒有新的一批');
+  fire('click', cards[0]);
+  click('[data-act="sweepSubmit"]');
+  assert(has('抽考'), '打開設定後應該要抽考：' + txt().slice(0, 200));
+  let guard = 0;
+  while (doc.querySelector('[data-swopt]') && guard++ < 5) fire('click', doc.querySelectorAll('[data-swopt]')[0]);
+  assert(has('確認已會') || has('抽考沒過'), '抽考後沒有結算');
+  assert(S.summary().sweepTotal >= 1, '抽考題數沒記錄');
+  S.settings.sweepCheck = false;
 });
 
 t('結算後可以再篩下一批，或先停', () => {
   assert(doc.querySelector('[data-act="sweepNext"]'), '沒有「再篩下一批」');
   click('[data-act="sweepNext"]');
-  assert(doc.querySelectorAll('[data-swpick]').length === 12, '沒有進到下一批');
+  assert(doc.querySelectorAll('[data-swpick]').length >= 1, '沒有進到下一批');
   click('[data-act="sweepEnd"]');
   assert(has('闖關地圖'), '沒回到首頁');
 });
@@ -1276,6 +1292,27 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   assert(S.day().newIds.length === n - 1, `新字數應該是 ${n - 1}，實際 ${S.day().newIds.length}`);
   const r = window.__run && window.__run();
   if (r) r.inStage = false;
+});
+
+console.log('\n--- 新手包與字典連結 ---');
+t('第一次開啟會拿到新手包（道具功能才有東西可玩）', () => {
+  const p = S.profile;
+  assert(p.starterGiven === true, '沒有發新手包');
+  // 直接驗 store 的行為：不會重複發
+  const before = JSON.stringify(S.inventory());
+  assert(S.grantStarter() === null, '新手包不該重複發');
+  assert(JSON.stringify(S.inventory()) === before, '重複呼叫改動了背包');
+  assert(Object.keys(S.STARTER).length >= 3, '新手包內容太少');
+});
+
+t('每個單字都能一鍵查 Yahoo 奇摩字典', () => {
+  goHome();
+  click('[data-go="browse"]');
+  const a = doc.querySelector('a.dictmini');
+  assert(a, '瀏覽字庫沒有查字典的連結');
+  assert(/tw\.dictionary\.search\.yahoo\.com/.test(a.attrs.href), '連結不是 Yahoo 字典：' + a.attrs.href);
+  assert(/[?&]p=/.test(a.attrs.href), '沒有帶查詢字：' + a.attrs.href);
+  assert(a.attrs.target === '_blank', '應該開新分頁');
 });
 
 console.log('\n--- 出題順序 ---');

@@ -6,6 +6,14 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const V = () => window.VOCAB;
   const WD = ['日', '一', '二', '三', '四', '五', '六'];
+  /* Yahoo 奇摩字典的查詢連結。
+     為什麼是「連過去」而不是「把翻譯抄進來」：那些詞義是 Yahoo 向字典商（譯典通）
+     授權的內容，整批抓下來放進公開 repo 等於重新散布別人的授權資料。
+     連過去則是完全乾淨的做法，而且永遠是最新、最完整的（含例句與詞性分類）。 */
+  const dictUrl = w => 'https://tw.dictionary.search.yahoo.com/search?p=' + encodeURIComponent(Q.base(String(w || '')));
+  const dictLink = (w, cls) => `<a class="${cls || 'btn sm ghost'} dict" href="${esc(dictUrl(w))}" target="_blank" rel="noopener">🔍 Yahoo 字典</a>`;
+  const dictMini = w => `<a class="dictmini" href="${esc(dictUrl(w))}" target="_blank" rel="noopener" title="查 Yahoo 奇摩字典">🔍</a>`;
+
   /** 秒數 → 「3 分 12 秒」。關卡使用時間、作答紀錄都用這個格式。 */
   const fmtSec = s => {
     s = Math.max(0, Math.round(s || 0));
@@ -978,7 +986,8 @@
     $('#fb').innerHTML = `<div class="feedback ${ok === false ? 'no' : 'ok'}">${head}
       ${extra.length ? `<div style="margin-top:8px;color:var(--tx2);font-size:13.5px">${extra.join('<br>')}</div>` : ''}</div>
       <div class="btnrow" style="margin-top:12px"><button class="btn primary" data-act="next">${run.dead ? '血量用完了…' : run.idx + 1 >= run.qs.length ? '完成這一關' : '下一題'} ${kbd('next')}</button>
-      ${w ? `<button class="btn ghost" data-say="${esc(Q.base(w.w))}">🔊 ${esc(Q.base(w.w))}</button>` : ''}</div>`;
+      ${w ? `<button class="btn ghost" data-say="${esc(Q.base(w.w))}">🔊 ${esc(Q.base(w.w))}</button>` : ''}
+      ${w ? dictLink(w.w) : ''}</div>`;
     if (ok) $('#qcard').classList.add('flash-ok');
     if (ok === false) $('#qcard').classList.add('gameover');
   }
@@ -1462,7 +1471,7 @@
       return {
         ok: a.ok,
         html: `<div style="border-bottom:1px solid var(--line);padding:10px 0">
-          <div><b style="color:${color}">${mark}</b> ${w ? `<b>${esc(w.w)}</b> <span class="tiny">${esc(w.p)} L${w.lv}</span>` : `<b>${esc(window.GRAMMAR_TITLES[q.gid] || '文法')}</b>`}
+          <div><b style="color:${color}">${mark}</b> ${w ? `<b>${esc(w.w)}</b> ${dictMini(w.w)} <span class="tiny">${esc(w.p)} L${w.lv}</span>` : `<b>${esc(window.GRAMMAR_TITLES[q.gid] || '文法')}</b>`}
             ${a.gained ? `<span class="tiny" style="color:var(--ac);float:right">+${a.gained} XP</span>` : ''}</div>
           ${a.ok === false ? `<div class="tiny">你的答案：<span style="color:var(--red)">${esc(yours)}</span>　正確：${hide(right, 'r' + n)}</div>` : ''}
           ${a.ok === true ? `<div class="tiny">正確答案：${hide(right, 'r' + n)}</div>` : ''}
@@ -1605,7 +1614,7 @@
       `<tr><td class="w">${esc(typeName[k] || k)}</td><td>${v.n}</td><td style="color:var(--ac)">${v.ok}</td><td style="color:var(--red)">${v.n - v.ok}</td><td>${Math.round(v.ok / v.n * 100)}%</td></tr>`).join('');
     const wrongRows = sum.wrongWords.map(i => {
       const w = V()[i];
-      return `<tr><td class="w">${esc(w.w)}</td><td class="muted">${esc(w.p)} L${w.lv}</td><td>${esc(w.tr)}</td></tr>`;
+      return `<tr><td class="w">${esc(w.w)} ${dictMini(w.w)}</td><td class="muted">${esc(w.p)} L${w.lv}</td><td>${esc(w.tr)}</td></tr>`;
     }).join('');
     const histRows = hist.map(h => `<tr><td>${h.date.slice(5)}</td><td>${h.newCount}</td><td>${h.reviewTotal}</td>
       <td style="color:var(--ac)">${h.reviewRight}</td><td style="color:var(--red)">${h.reviewWrong}</td>
@@ -1753,6 +1762,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         ${sen && sen.trap ? `<p class="tiny" style="color:var(--gold);margin-top:8px">⚠ ${esc(sen.trap)}</p>` : ''}
       </div>
       <div class="btnrow" style="justify-content:center">
+        ${dictLink(w.w)}
         ${k > 0 ? `<button class="btn ghost" data-act="prevCard">← 上一個 ${kbd('prev')}</button>` : ''}
         <button class="btn primary" data-act="nextCard">${k + 1 >= ids.length ? '開始闖關 →' : '記住了，下一個 →'} ${kbd('card')}</button>
         <button class="btn ghost" data-act="knowCard">這個我早就會了 ⏭ ${kbd('know')}</button>
@@ -1845,12 +1855,21 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
 
   /** 選字數畫面上的道具勾選區；沒有任何消耗品就不顯示。 */
   function itemPicker() {
+    // 一個都沒有時也要把整個機制畫出來（灰的），不然使用者會以為這個功能不存在
     const own = PRE_ITEMS.filter(it => S.owned(it.id));
     if (!own.length) {
+      const rows = PRE_ITEMS.map(it => `<div class="itemrow empty">
+        <div class="iname"><b>${esc(it.short)}</b><span class="tiny">${esc(it.eff)}　持有 0</span></div>
+        <div class="stepper"><button class="btn sm" disabled>−</button><b class="num">0</b><button class="btn sm" disabled>＋</button></div>
+      </div>`).join('');
       return `<div class="card itemcard" style="margin-top:14px">
-        <h3>🧪 這一關要用道具嗎？</h3>
-        <p class="tiny">目前沒有可以用在這一關的消耗品（護心符 ♥+1、大護心符 ♥+3、沙漏、大沙漏、雙倍／三倍 XP 卡）。
-          商店買得到，背包的合成台也做得出來；有了之後這裡就會出現勾選鈕，<b>勾了才會消耗</b>。</p>
+        <h3>🧪 這一關要用道具嗎？<span class="tiny">目前一個都沒有</span></h3>
+        <div class="itemlist">${rows}</div>
+        <p class="tiny">有道具的時候，這裡就能選<b>這一關要用幾個</b>（− 數字 ＋），血量與時間會即時算給你看。</p>
+        <div class="btnrow">
+          <button class="btn sm" data-go="shop">🏪 去商店買</button>
+          <button class="btn sm" data-go="bag">⚒ 去合成台做</button>
+        </div>
       </div>`;
     }
     const eff = itemEffect();
@@ -2062,8 +2081,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   }
 
   // ---------------- 快速篩選（本來就會的字不用當新字學）----------------
-  /* 流程：一次 12 個字 → 自己點掉「不會的」→ 從沒點的字裡隨機抽 2 個真的考 →
-     抽考過就把整批當已會（box 2，3 天後還是會被複習抽到）；抽考沒過整批降級。 */
+  /* 流程：一次 12 個字 → 自己點掉「不會的」→ 剩下的直接當已會（box 2）。
+     預設不抽考（使用者要求：篩選就是要快）；box 2 表示 3 天後仍會出現在複習裡，
+     所以就算自己評太寬，也會在複習時被抓出來。設定可以打開「篩選時抽考 2 題」。 */
   let sw = { lvs: [1, 2], batch: [], off: new Set(), phase: 'pick', check: [], ci: 0, wrong: [], stat: null };
 
   function sweepStart() {
@@ -2076,21 +2096,25 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       ${pageHead('⚡ 快速篩選', { back: true })}
       <p class="muted">詞彙表裡有很多你小學就會的字。這裡一次看 12 個字，<b>只要點掉不會的</b>，
         剩下的就直接算已會 —— 不用走學習卡、不算新字。</p>
-      <p class="tiny">為了不讓數字虛胖：每批會從你「說會」的字裡<b>隨機抽 2 個真的考</b>；抽考沒過，整批降級明天重考。
-        算已會的字也只放到 box 2，<b>3 天後照樣會出現在複習裡</b>。</p>
+      <p class="tiny">說「會」的字<b>直接通過，不用考</b>。不過它們只會放到 box 2 —— <b>3 天後照樣會出現在複習裡</b>，
+        真的忘了就會被抓出來，所以不必怕自己太寬鬆。（想更嚴格可以在設定打開「篩選時抽考 2 題」）</p>
       <h3 style="margin-top:14px">要篩哪幾級？</h3>
       <div class="pills">${lvBtns}</div>
+      <h3 style="margin-top:14px">一批要看幾個字？</h3>
+      <div class="pills">${[12, 24, 40, 60, 100].map(n =>
+      `<button class="pill ${(S.settings.sweepBatch || 24) === n ? 'on' : ''}" data-swsize="${n}">${n} 字</button>`).join('')}</div>
+      <p class="tiny">一次看多一點比較快 —— 反正只要點掉不會的，其他直接過。</p>
       <p class="muted" style="margin-top:10px">還沒篩過的字：<b style="color:var(--ac)">${st.unseen}</b> 個
         ・已篩掉（本來就會）<b style="color:var(--blue)">${st.claimed}</b> 個</p>
       <div class="btnrow">
-        <button class="btn primary big-btn" data-act="sweepGo" ${pool ? '' : 'disabled'}>開始篩（一批 12 字）</button>
+        <button class="btn primary big-btn" data-act="sweepGo" ${pool ? '' : 'disabled'}>開始篩（一批 ${S.settings.sweepBatch || 24} 字）</button>
       </div>
       <p class="tiny">一批大約 20–40 秒。L1＋L2 共 2004 字，全部篩完約 1.5–2 小時，之後就再也不會被當新字考。</p>
     </div>`);
   }
 
   function sweepBatch() {
-    sw.batch = S.sweepPool(12, sw.lvs);
+    sw.batch = S.sweepPool(S.settings.sweepBatch || 24, sw.lvs);
     sw.off = new Set();
     sw.phase = 'pick';
     if (!sw.batch.length) return sweepDone();
@@ -2112,16 +2136,17 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         <div class="swgrid">${cards}</div>
         <div class="btnrow" style="margin-top:14px;justify-content:center">
           <button class="btn primary big-btn" data-act="sweepSubmit">這批處理完（${sw.batch.length - sw.off.size} 個會 / ${sw.off.size} 個不會）</button>
-          <button class="btn ghost" data-act="sweepAllNo">全部都不會</button>
+          <button class="btn ghost" data-act="sweepAllNo">這批我都不會</button>
           <button class="btn ghost" data-act="sweepEnd">先停</button>
         </div>
-        <p class="tiny" style="margin-top:8px">點掉的字會排進學習隊列（照樣出學習卡與完整題型）；沒點的字接著會被抽考。</p>
+        <p class="tiny" style="margin-top:8px">點掉的字會排進學習隊列（照樣出學習卡與完整題型）；沒點的字<b>直接算已會，不用考</b>。</p>
       </div>`);
   }
 
-  /** 從「說會」的字裡抽 2 個真的考（英→中 四選一，10 秒）。 */
+  /** 從「說會」的字裡抽 2 個真的考（英→中 四選一，10 秒）。預設關閉：說會就直接通過。 */
   function sweepCheck() {
     const claim = sw.batch.filter((w, k) => !sw.off.has(k));
+    if (!S.settings.sweepCheck) return sweepApply([]);      // 不抽考，直接放行
     if (!claim.length) return sweepApply([]);
     sw.check = Q.shuffle(claim).slice(0, Math.min(2, claim.length))
       .map(w => Q.gen.e2c(w) || Q.gen.c2e(w)).filter(Boolean);
@@ -2375,7 +2400,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       const badge = !r ? '<span class="tiny">未學</span>'
         : r.b >= 5 ? '<span class="tiny" style="color:var(--ac)">長期記憶</span>'
           : `<span class="tiny" style="color:var(--blue)">box ${r.b}</span>`;
-      return `<tr><td class="w">${esc(w.w)} <button class="speak" data-say="${esc(Q.base(w.w))}">🔊</button></td>
+      return `<tr><td class="w">${esc(w.w)} <button class="speak" data-say="${esc(Q.base(w.w))}">🔊</button> ${dictMini(w.w)}</td>
         <td class="muted">${esc(w.p)} L${w.lv}</td><td>${esc(w.tr)}</td><td>${badge}</td></tr>`;
     }).join('');
     render(`<div class="card">
@@ -2429,7 +2454,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       const w = x.i != null && V()[x.i] ? V()[x.i] : null;
       const mark = x.ok === null ? '<span style="color:var(--tx2)">📝</span>' : x.ok ? '<span style="color:var(--ac)">✓</span>' : '<span style="color:var(--red)">✗</span>';
       const what = x.cat === 'gram' ? esc(x.title || (window.GRAMMAR_TITLES || {})[x.id] || '文法題')
-        : w ? `<b>${esc(w.w)}</b> <span class="tiny">${esc(w.p)} L${w.lv}</span>` : '—';
+        : w ? `<b>${esc(w.w)}</b> ${dictMini(w.w)} <span class="tiny">${esc(w.p)} L${w.lv}</span>` : '—';
       const kind = x.cat === 'free' ? '自由造句' : esc(S.KIND_NAMES[x.t] || x.t || (x.cat === 'gram' ? '文法' : ''));
       const yours = x.cat === 'free' ? esc(x.text || '') : esc(x.given || '（未作答）');
       const right = x.ok === false ? `<div class="tiny" style="color:var(--ac)">正解：${esc(x.right || '')}</div>` : '';
@@ -2679,6 +2704,10 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <h3 style="margin-top:16px">其他</h3>
       <label class="row"><input type="checkbox" ${c.timer ? 'checked' : ''} data-chk="timer">每題倒數計時</label>
       <label class="row"><input type="checkbox" ${c.instantFeedback ? 'checked' : ''} data-chk="instantFeedback">每題答完立刻對答案（預設關閉：整關結束才一次結算）</label>
+      <label class="row"><input type="checkbox" ${c.sweepCheck ? 'checked' : ''} data-chk="sweepCheck">快速篩選時抽考 2 題確認（預設關：說會就直接通過）</label>
+      <label class="row"><input type="checkbox" ${c.reviewMastered ? 'checked' : ''} data-chk="reviewMastered">複習時也抽已經練起來的字（box 5 以上・預設關）</label>
+      <p class="tiny">預設只複習還不穩的字。打開的話，長期記憶的字到期時也會被抽考 ——
+        比較花時間，但可以確認自己是不是真的還記得。</p>
       <label class="row"><input type="checkbox" ${c.keyBar ? 'checked' : ''} data-chk="keyBar">在作答畫面顯示快速鍵提示條</label>
       <label class="row"><input type="checkbox" ${c.memes ? 'checked' : ''} data-chk="memes">顯示迷因台詞（讀累了看一句廢話，可關）</label>
       <label class="row"><input type="checkbox" ${c.sfx ? 'checked' : ''} data-chk="sfx">音效</label>
@@ -2820,6 +2849,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       if (!sw.lvs.length) sw.lvs = [l];
       return sweepStart();
     }
+    const sws = t.closest('[data-swsize]');
+    if (sws) { S.settings.sweepBatch = +sws.dataset.swsize; S.save(true); return sweepStart(); }
     const swp = t.closest('[data-swpick]');
     if (swp) {
       const k = +swp.dataset.swpick;
@@ -3236,7 +3267,40 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       return;
     }
     applyTheme();
+    const starter = S.grantStarter();          // 第一次開啟送新手包，道具功能才有東西可以玩
+    const makeup = S.grantMakeup();            // 舊存檔：補償先前被自動吃掉的道具
     home();
+    if (makeup) {
+      overlay(`<div class="big" style="color:var(--gold)">🎁 道具補償</div>
+        <p class="muted">道具改成「這一關要不要用、用幾個」<b>之前</b>，每一關都會自動吃掉你的道具 ——
+          那是我的設計失誤，先補回來給你。</p>
+        <div class="lootrow">
+          <span class="loot item">🧪 護心符 ×${makeup.heart}</span>
+          <span class="loot item">🧪 大護心符 ×${makeup.bigheart}</span>
+          <span class="loot item">🧪 沙漏 ×${makeup.hourglass}</span>
+          <span class="loot item">🧪 雙倍 XP 卡 ×${makeup.xp2}</span>
+          <span class="loot item">🧪 刪去法 ×${makeup.fifty}</span>
+          <span class="loot coin">🪙 +${makeup.coins}</span>
+        </div>
+        <p class="tiny">現在道具只有你自己在「選幾個字」畫面選了才會消耗，關卡上方也會顯示這關用了什麼。</p>
+        <div class="btnrow" style="justify-content:center;margin-top:12px">
+          <button class="btn primary" data-close="ok">收下</button>
+        </div>`);
+    }
+    if (starter) {
+      overlay(`<div class="big" style="color:var(--gold)">🎁 新手包</div>
+        <p class="muted">先給你一些道具，這樣才玩得到「這一關要用哪些道具」。</p>
+        <div class="lootrow">
+          <span class="loot item">🧪 護心符 ×${starter.heart}</span>
+          <span class="loot item">🧪 沙漏 ×${starter.hourglass}</span>
+          <span class="loot item">🧪 刪去法 ×${starter.fifty}</span>
+          <span class="loot coin">🪙 +${starter.coins}</span>
+        </div>
+        <p class="tiny">進字母關選完字數後，下面的紫色卡片就可以選這一關要用幾個。</p>
+        <div class="btnrow" style="justify-content:center;margin-top:12px">
+          <button class="btn primary" data-close="ok">知道了</button>
+        </div>`);
+    }
   }
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', boot) : boot();
 })();
