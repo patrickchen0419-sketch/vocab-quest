@@ -1568,6 +1568,41 @@
   }
 
   // ---------------- 成績單 / 家長回報 ----------------
+  /** 把連續的字母壓成範圍：A B C D F → 「A–D、F」。 */
+  function letterRanges(list) {
+    const order = S.LETTERS;
+    const idx = list.map(L => order.indexOf(L)).sort((a, b) => a - b);
+    const out = [];
+    let start = null, prev = null;
+    idx.forEach(i => {
+      if (start === null) { start = prev = i; return; }
+      if (i === prev + 1) { prev = i; return; }
+      out.push([start, prev]); start = prev = i;
+    });
+    if (start !== null) out.push([start, prev]);
+    return out.map(([a, b]) => (a === b ? order[a] : `${order[a]}–${order[b]}`)).join('、');
+  }
+
+  /** 每一級的進度：完成了哪些字母關、還剩幾關、學會幾個字。 */
+  function levelProgress() {
+    return [1, 2, 3, 4, 5, 6].map(lv => {
+      const playable = S.LETTERS.filter(L => S.bucket(lv, L).length);
+      const done = playable.filter(L => S.mapStat(lv, L).full);
+      const ls = S.levelStat(lv);
+      const base = { lv, total: playable.length, done: done.length, known: ls.known, words: ls.total };
+      if (!playable.length) return Object.assign(base, { text: `第 ${lv} 級：沒有可玩的關卡` });
+      if (done.length === playable.length) {
+        return Object.assign(base, { all: true, text: `第 ${lv} 級：✅ 全部完成（${playable.length} 關、${ls.total} 字）` });
+      }
+      if (!done.length) {
+        return Object.assign(base, { text: `第 ${lv} 級：尚未完成任何字母關（已學會 ${ls.known}/${ls.total} 字）` });
+      }
+      return Object.assign(base, {
+        text: `第 ${lv} 級：${letterRanges(done)} 完成（${done.length}/${playable.length} 關），其餘未完成（已學會 ${ls.known}/${ls.total} 字）`,
+      });
+    });
+  }
+
   function reportText(sum) {
     const st = S.stats(), d = sum.date.split('-');
     const wd = WD[new Date(+d[0], +d[1] - 1, +d[2]).getDay()];
@@ -1591,6 +1626,10 @@
       ``,
       `■ 今天實際練習時間：${fmtSec(S.runSeconds(sum.date))}（共闖 ${S.runLog(sum.date).length} 關，通關 ${S.day(sum.date).cleared || 0} 關）`,
       `■ 今天完成的任務：${(S.questLog(sum.date) || []).length} 項`,
+      ``,
+      `【目前進度】`,
+      ...levelProgress().map(x => '　' + x.text),
+      `　關卡總進度：${st.clearedStages}/${st.playableStages} 個字母關完成`,
       ``,
       `累積已學會 ${st.known} 字 ／ 全書 ${V().length} 字（${(st.known / V().length * 100).toFixed(1)}%）`,
       `連續學習 ${st.streak} 天 ・ 今日獲得 ${sum.xp} XP ・ 等級 Lv.${st.level}`,
@@ -1634,6 +1673,16 @@
           <div class="stat"><b>${sum.stars}</b><span>今日星數</span></div>
           <div class="stat"><b>${sum.xp}</b><span>今日 XP</span></div>
         </div>
+      </div>
+
+      <div class="card">
+        <h3>目前進度</h3>
+        ${levelProgress().map(x => `<div class="prow">
+          <div class="ptop"><span>${x.all ? '✅ ' : ''}${esc(x.text.replace(/^第 \d+ 級：/, `第 ${x.lv} 級 　`))}</span><b>${x.done}/${x.total} 關</b></div>
+          <div class="xpbar g-lv${x.lv}"><i style="width:${x.total ? (x.done / x.total * 100).toFixed(1) : 0}%"></i></div>
+        </div>`).join('')}
+        <p class="tiny" style="margin-top:8px">關卡總進度 ${st.clearedStages}/${st.playableStages} 關　・
+          累積已學會 ${st.known}/${V().length} 字（${(st.known / V().length * 100).toFixed(1)}%）</p>
       </div>
 
       ${typeRows ? `<div class="card"><h3>各題型表現（採計第 1 次作答）</h3><div class="tblwrap"><table class="rep">
@@ -1710,6 +1759,7 @@
 <p><span class="k">新單字 ${sum.newCount}</span><span class="k">複習 ${sum.reviewTotal} 題</span>
 <span class="k">對 ${sum.reviewRight}</span><span class="k">錯 ${sum.reviewWrong}</span>
 <span class="k">造句 ${sum.applyRight}/${sum.applyTotal}</span><span class="k">文法 ${sum.gramRight}/${sum.gramTotal}</span></p>
+<h2>目前進度</h2><ul>${levelProgress().map(x => `<li>${esc(x.text)}</li>`).join('')}</ul>
 ${wrong.length ? `<h2>要加強的字</h2><table><tr><th>單字</th><th>級別</th><th>意思</th></tr>${wrong.map(w => `<tr><td>${esc(w.w)}</td><td>L${w.lv} ${esc(w.p)}</td><td>${esc(w.tr)}</td></tr>`).join('')}</table>` : '<p>今天全部答對。</p>'}
 ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}</b>：${esc(f.text)}</p>`).join('')}` : ''}
 <h2>家長回報</h2><pre>${esc(reportText(sum))}</pre>

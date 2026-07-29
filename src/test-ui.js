@@ -1310,6 +1310,29 @@ t('學習卡上可以按「這個我早就會了」，不算今天的新字', ()
   if (r) r.inStage = false;
 });
 
+console.log('\n--- 成績單的目前進度 ---');
+t('成績單寫出每一級的進度（完成哪些字母、剩下沒完成）', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  // 第 1 級全部學會 → 整級完成；第 3 級只把 A、B、C 學完
+  S.LETTERS.forEach(L => S.bucket(1, L).forEach(i => S.markKnown(i, 2)));
+  ['A', 'B', 'C'].forEach(L => S.bucket(3, L).forEach(i => S.markKnown(i, 2)));
+  S.autoClear();
+  goHome();
+  click('[data-go="report"]');
+  assert(has('目前進度'), '成績單沒有目前進度區：' + txt().slice(0, 300));
+  assert(has('第 1 級') && has('全部完成'), '沒寫出第 1 級全部完成');
+  assert(has('A–C 完成'), '沒把連續字母壓成範圍（預期 A–C）：' + txt().slice(txt().indexOf('第 3 級'), txt().indexOf('第 3 級') + 200));
+  assert(has('其餘未完成'), '沒寫出剩下沒完成');
+  // 家長回報文字裡也要有
+  const rep = doc.querySelector('#rep').textContent;
+  assert(/【目前進度】/.test(rep), '家長回報沒有進度段落');
+  assert(/第 1 級：✅ 全部完成/.test(rep), '家長回報沒寫第 1 級完成：' + rep.slice(0, 400));
+  assert(/第 3 級：A–C 完成/.test(rep), '家長回報沒寫第 3 級的字母範圍');
+  assert(/關卡總進度：\d+\/\d+/.test(rep), '沒有關卡總進度');
+  s.words = {}; s.map = {};
+});
+
 console.log('\n--- 新手包與字典連結 ---');
 t('第一次開啟會拿到新手包（道具功能才有東西可玩）', () => {
   const p = S.profile;
