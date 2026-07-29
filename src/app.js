@@ -1123,6 +1123,7 @@
     } else {
       sfx.no();
     }
+    if (passed) S.autoClear();                 // 這一關可能剛好把這個字母的字補滿
     const quests = S.awardQuests();
     const checkin = passed ? S.checkIn() : null;
     const got = S.checkBadges({ bestCombo: run.bestCombo });
@@ -1739,6 +1740,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       // 按過「早就會了」的字不算今天的新字（那不是今天學的）
       const skip = (window.__cards && window.__cards.skip) || [];
       S.markNew(ids.filter(i => !skip.includes(i)));
+      announceAutoClear();
       return (window.__cards && window.__cards.then) ? window.__cards.then() : home();
     }
     const w = V()[ids[k]];
@@ -1806,7 +1808,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       const st = S.mapStat(lv, L);
       if (!st.total) return `<button class="pill az" disabled style="opacity:.25">${L}</button>`;
       const pct = Math.round(st.pct * 100);
-      const title = `${st.total} 字・已學會 ${st.known}（完成度 ${pct}%）${st.tries ? `・挑戰 ${st.tries} 次` : ''}${st.combo ? `・最佳連擊 ×${st.combo}` : ''}${st.full ? '・已 100% 完成' : ''}`;
+      const title = `${st.total} 字・已學會 ${st.known}（完成度 ${pct}%）${st.tries ? `・挑戰 ${st.tries} 次` : ''}${st.combo ? `・最佳連擊 ×${st.combo}` : ''}${st.full ? (st.autoDone ? '・全部學會，自動完成 ★★★' : '・已 100% 完成') : ''}`;
       // 100% 完成才給星星；只是某一輪通過就顯示完成度
       const label = st.full ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : `${pct}%`;
       return `<button class="pill az ${st.full ? 'on' : st.cleared ? 'part' : ''}" data-mapletter="${lv}:${L}" title="${esc(title)}">${L}<br><span style="font-size:10px;opacity:.8">${label}</span></button>`;
@@ -1815,8 +1817,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const fullN = S.LETTERS.filter(L => S.mapStat(lv, L).full).length;
     render(`<div class="card">
       ${pageHead(`第 ${lv} 級　<span class="tiny">${fullN}/${st.playable} 個字母關 100% 完成</span>`, { back: true })}
-      <p class="muted">磚上是<b>完成度</b>（這個字母的字學會幾成）。<b style="color:var(--gold)">100% 才會顯示星星、才會開放下一關</b>；
-        沒到 100% 的話，通關後只會給「繼續練習（新單字）」。</p>
+      <p class="muted">磚上是<b>完成度</b>（這個字母的字學會幾成）。<b style="color:var(--gold)">100% 就直接算完成、直接給 ★★★</b> ——
+        不管是打關卡打出來的，還是用快速篩選篩掉的都算。沒到 100% 的話，通關後會給「繼續練習（新單字）」。</p>
       ${bar('這一級的單字進度', st.known, st.total, `${st.known}/${st.total} 字`, 'g-lv' + lv)}
       ${bar('這一級的通關進度', st.cleared, st.playable, `${st.cleared}/${st.playable} 關`, 'g-gold')}
       <div class="pills" style="margin-top:10px">${tiles}</div>
@@ -1926,7 +1928,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
              名額改成多考這一關的單字。</p>`;
       })()}
       <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.PASS_ACC * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
-      ${st.full ? `<p class="tiny" style="color:var(--gold)">🏆 這一關已 100% 完成 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}　挑戰過 ${st.tries} 次</p>`
+      ${st.full ? `<p class="tiny" style="color:var(--gold)">🏆 這一關已 100% 完成 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.autoDone ? '（所有字都會了，自動完成）' : ''}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}${st.tries ? `　挑戰過 ${st.tries} 次` : ''}</p>`
       : st.cleared ? `<p class="tiny" style="color:var(--ac)">曾經通過，但完成度 ${Math.round(st.pct * 100)}%（還有 ${st.left} 個字沒學會）—— 練完才會開放下一關</p>`
         : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}
     </div>`);
@@ -2200,10 +2202,21 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     sweepDrawCheck();
   }
 
+  /** 檢查有沒有字母關因為「字全部學會」而完成；有的話提示並給寶箱。 */
+  function announceAutoClear() {
+    const done = S.autoClear();
+    if (!done.length) return done;
+    sfx.clear();
+    const names = done.slice(0, 4).map(x => `第 ${x.lv} 級 ${x.letter}`).join('、');
+    toast(`🏆 ${names}${done.length > 4 ? ` 等 ${done.length} 關` : ''} 全部學會，直接通關！寶箱已進背包`);
+    return done;
+  }
+
   function sweepApply(failed) {
     const know = sw.batch.filter((w, k) => !sw.off.has(k)).map(w => w.i);
     const learn = sw.batch.filter((w, k) => sw.off.has(k)).map(w => w.i);
     const r = S.applySweep({ know, learn, failed: failed || [] });
+    const auto = announceAutoClear();          // 篩完可能直接把某些字母關填滿
     const st = S.sweepStat();
     // 篩選也算學習：給少量 XP，避免「有做事卻沒回饋」
     const xp = Math.round(know.length * 2 + learn.length);
@@ -2217,6 +2230,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         <div class="stat blue"><b>${st.unseen}</b><span>還沒篩的字</span></div>
         <div class="stat gold"><b>+${xp}</b><span>XP</span></div>
       </div>
+      ${auto.length ? `<p class="tiny" style="color:var(--gold)">🏆 這批篩完之後，${auto.map(x => `第 ${x.lv} 級 ${x.letter}`).join('、')} 的字已經全部學會 —— 直接通關，寶箱已進背包。</p>` : ''}
       ${r.downgraded ? `<p class="tiny" style="color:var(--gold)">抽考答錯了，所以這批「說會」的字只放到 box 1，明天會再考一次確認。</p>`
       : '<p class="tiny">確認已會的字放在 box 2：3 天後仍會出現在複習裡抽考，真的忘了就會被抓出來。</p>'}
       <div class="btnrow" style="justify-content:center;margin-top:14px">

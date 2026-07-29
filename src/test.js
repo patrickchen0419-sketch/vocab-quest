@@ -842,6 +842,64 @@ t('nextStage 會跳過沒有字的字母，走到底換下一級', () => {
   assert(S.nextStage(6, 'Z') === null, '最後一關之後不該還有下一關');
 });
 
+t('一個字母的字全部會了就自動完成、直接三星（篩掉的也算）', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  const ids = S.bucket(2, 'K');
+  assert(ids.length >= 2, 'K 關字太少');
+  const before = S.mapStat(2, 'K');
+  assert(before.full === false && before.stars === 0, '一開始不該是完成狀態');
+  // 用快速篩選的方式標記（不是打關卡）
+  ids.forEach(i => S.markKnown(i, 2));
+  const after = S.mapStat(2, 'K');
+  assert(after.known === after.total, '應該全部學會');
+  assert(after.full === true, '完成度 100% 就該算完成');
+  assert(after.stars === 3, '應該直接給三星，實際 ' + after.stars);
+  assert(after.cleared === true, '應該算通過');
+  assert(after.autoDone === true, '應該標記為自動完成');
+  // 成就統計也要算進去
+  const st = S.stats();
+  assert(st.threeStars >= 1, '全三星統計沒算到自動完成的關');
+  assert(st.clearedStages >= 1, '通關數沒算到自動完成的關');
+  // 打過關卡的三星不會被降級
+  s.map['2:K'] = { cleared: true, stars: 3, tries: 1, best: 1 };
+  assert(S.mapStat(2, 'K').stars === 3, '打過的三星應該保留');
+  s.words = {}; s.map = {};
+});
+
+t('全部學完＝真的通關：記進地圖、算今日通關數、發寶箱', () => {
+  const s = S.load(), p = S.profile;
+  s.words = {}; s.map = {}; p.chestBag = [];
+  const d = S.day();
+  d.cleared = 0;
+  const ids = S.bucket(2, 'K');
+  ids.forEach(i => S.markKnown(i, 2));
+  const done = S.autoClear();
+  assert(done.length >= 1, '沒有偵測到自動通關');
+  const hit = done.find(x => x.lv === 2 && x.letter === 'K');
+  assert(hit, '第 2 級 K 關沒被判定通關：' + JSON.stringify(done.map(x => x.lv + x.letter)));
+  assert(s.map['2:K'] && s.map['2:K'].cleared === true, '沒記進關卡地圖');
+  assert(s.map['2:K'].stars === 3, '沒給三星');
+  assert(s.map['2:K'].auto === true, '沒標記為自動通關');
+  assert(d.cleared >= 1, '沒算進今日通關數（每日任務要用）');
+  assert(S.chestBag().some(c => /全部學會/.test(c.from)), '沒有發寶箱：' + JSON.stringify(S.chestBag()));
+  // 不會重複觸發
+  const again = S.autoClear();
+  assert(!again.some(x => x.lv === 2 && x.letter === 'K'), '同一關重複通關');
+  s.words = {}; s.map = {}; p.chestBag = [];
+});
+
+t('還沒全部學會就不會自動完成', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  const ids = S.bucket(2, 'K');
+  ids.slice(0, ids.length - 1).forEach(i => S.markKnown(i, 2));   // 少一個
+  const st = S.mapStat(2, 'K');
+  assert(st.full === false, '少一個字就不該算完成');
+  assert(st.stars === 0, '不該給星星');
+  s.words = {}; s.map = {};
+});
+
 t('通關才記 cleared，連勝正確增減', () => {
   const p = S.profile;
   p.winStreak = 0; p.inventory = {};

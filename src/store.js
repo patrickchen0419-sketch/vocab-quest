@@ -627,16 +627,19 @@
       for (const dstr in s.days) (s.days[dstr].gram || []).forEach(g => { if (g.id === id && g.ok && g.attempt === 1) right++; });
       return total.length && right >= total.length;
     }).length;
-    // 成就要用的累積數字：星數、通關數、全三星數、寶箱、寶石、地獄通關次數
-    let stars = 0, clearedStages = 0, threeStars = 0;
-    for (const key in (s.map || {})) {
-      const m = s.map[key];
-      stars += m.stars || 0;
-      if (m.cleared) clearedStages++;
-      if ((m.stars || 0) >= 3) threeStars++;
+    /* 成就的累積數字要走 mapStat，才會把「全部學會＝自動完成三星」算進去
+       （直接讀 s.map 只看得到真的打過的關）。 */
+    let stars = 0, clearedStages = 0, threeStars = 0, playableStages = 0;
+    for (let lv = 1; lv <= 6; lv++) {
+      LETTERS.forEach(L => {
+        const st = mapStat(lv, L);
+        if (!st.total) return;
+        playableStages++;
+        stars += st.stars;
+        if (st.cleared) clearedStages++;
+        if (st.stars >= 3) threeStars++;
+      });
     }
-    let playableStages = 0;
-    for (let lv = 1; lv <= 6; lv++) LETTERS.forEach(L => { if (bucket(lv, L).length) playableStages++; });
     let chests = 0, gems = 0, hellClears = 0, minutes = 0;
     for (const dstr in s.days) {
       const d = s.days[dstr];
@@ -704,15 +707,21 @@
     const m = s.map[key] || {};
     let known = 0;
     ids.forEach(i2 => { if (s.words[i2] && s.words[i2].b >= 1) known++; });
+    /* 這個字母的字**全部都會了**（不管是打關卡打出來的，還是快速篩選篩掉的），
+       就直接算完成、直接給三星 —— 不該因為「沒有正式打過這一關」而卡著空星星。 */
+    const auto = ids.length > 0 && known >= ids.length;
     return {
       lv, letter, key, total: ids.length, known,
-      cleared: !!m.cleared, stars: m.stars || 0, tries: m.tries || 0, best: m.best || 0,
+      cleared: !!m.cleared || auto,
+      stars: auto ? Math.max(3, m.stars || 0) : (m.stars || 0),
+      autoDone: auto && !m.cleared,                 // 沒打過關卡、靠全部學會達成的
+      tries: m.tries || 0, best: m.best || 0,
       combo: m.combo || 0,
       // full = 正確率過門檻「而且」這個字母的字 100% 都學會了 —— 只有這樣才算真正打完，
       // 可以前往下一關；否則只能繼續練這一關剩下的新字。
       pct: ids.length ? known / ids.length : 0,
       left: Math.max(0, ids.length - known),
-      full: !!m.cleared && ids.length > 0 && known >= ids.length,
+      full: auto,                                   // 完成度 100% 就是完成
     };
   }
 
@@ -759,6 +768,34 @@
     save(true);
     m.shielded = shielded;
     return m;
+  }
+
+  /* 全部學完＝通關：把「這個字母的字都會了」正式記進關卡地圖。
+     不只是畫面上顯示三星 —— 會記 cleared／三星、算進今日通關數，並發一個銀寶箱。
+     （沒有連勝加成，因為那是打關卡打出來的。） */
+  function autoClear() {
+    const s = load(), out = [];
+    s.map = s.map || {};
+    for (let lv = 1; lv <= 6; lv++) {
+      for (const L of LETTERS) {
+        const ids = bucket(lv, L);
+        if (!ids.length) continue;
+        const key = lv + ':' + L;
+        const m = s.map[key] || {};
+        if (m.cleared) continue;
+        let known = 0;
+        ids.forEach(i => { if (s.words[i] && s.words[i].b >= 1) known++; });
+        if (known < ids.length) continue;
+        s.map[key] = {
+          cleared: true, stars: Math.max(3, m.stars || 0), tries: m.tries || 0,
+          best: Math.max(m.best || 0, 1), combo: m.combo || 0, auto: true,
+        };
+        day().cleared = (day().cleared || 0) + 1;
+        out.push({ lv, letter: L, chestId: addChest('silver', `第 ${lv} 級 ${L} 關 全部學會`) });
+      }
+    }
+    if (out.length) save(true);
+    return out;
   }
 
   function winStreak() { return load().profile.winStreak || 0; }
@@ -1751,7 +1788,7 @@
     questList, questStatus, awardQuests, questLog, specialQuest, noteDayCombo,
     weekKey, monthKey, weekDates, monthDates, periodStats, periodQuestStatus,
     weekQuestList, monthQuestList,
-    LETTERS, PASS_ACC, bucket, mapStat, levelStat, nextStage, recordStage,
+    LETTERS, PASS_ACC, bucket, mapStat, levelStat, nextStage, recordStage, autoClear,
     winStreak, bestWinStreak, winStreakBonus,
     SHOP, shopItem, coins, addCoins, inventory, owned, buy, consume, equip, equipped, stageCoins,
     STARTER, grantStarter, MAKEUP, grantMakeup,

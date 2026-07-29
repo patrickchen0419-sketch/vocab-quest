@@ -420,6 +420,22 @@ t('連勝會累加並顯示在頂端', () => {
   assert(has('第 3 級'), '沒回到地圖');
 });
 
+t('用快速篩選把一個字母篩完，字母磚直接顯示 ★★★', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  S.bucket(1, 'K').forEach(i => S.markKnown(i, 2));      // 全部篩掉（沒打過關卡）
+  goHome();
+  click('[data-maplv="1"]');
+  const tile = doc.querySelector('[data-mapletter="1:K"]');
+  assert(tile, '找不到 K 關');
+  assert(tile.className.includes('on'), '篩完的字母磚沒有標成完成');
+  assert(tile.innerHTML.includes('★★★'), '沒有直接顯示三星：' + tile.innerHTML);
+  click('[data-mapletter="1:K"]');
+  assert(has('已 100% 完成'), '選字數頁沒標成完成：' + txt().slice(0, 300));
+  assert(has('自動完成'), '沒說明是靠全部學會達成的');
+  s.words = {}; s.map = {};
+});
+
 t('100% 完成後才顯示星星，字母磚也會標成完成', () => {
   // 把 B 關剩下的字全部標成已學會，模擬完成度 100%
   S.bucket(3, 'B').forEach(i => S.markKnown(i, 2));
