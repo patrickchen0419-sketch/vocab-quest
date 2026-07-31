@@ -1981,6 +1981,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       ${st.full ? `<p class="tiny" style="color:var(--gold)">🏆 這一關已 100% 完成 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.autoDone ? '（所有字都會了，自動完成）' : ''}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}${st.tries ? `　挑戰過 ${st.tries} 次` : ''}</p>`
       : st.cleared ? `<p class="tiny" style="color:var(--ac)">曾經通過，但完成度 ${Math.round(st.pct * 100)}%（還有 ${st.left} 個字沒學會）—— 練完才會開放下一關</p>`
         : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}
+      ${st.known || st.tries || st.cleared ? `<div class="btnrow" style="margin-top:14px">
+        <button class="btn sm ghost" data-resetstage="${lv}:${letter}" style="color:var(--red)">↺ 重設這一關（當成沒學過）</button>
+      </div>` : ''}
     </div>`);
   }
 
@@ -2855,6 +2858,24 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (sst) { const [lv, L, n] = sst.dataset.startstage.split(':'); return startMapStage(+lv, L, +n); }
     const mlt = t.closest('[data-mapletter]');
     if (mlt) { const [lv, L] = mlt.dataset.mapletter.split(':'); return letterSetup(+lv, L); }
+    const rst = t.closest('[data-resetstage]');
+    if (rst) {
+      const [lv, L] = rst.dataset.resetstage.split(':');
+      const st = S.mapStat(+lv, L);
+      return overlay(`<h2 style="color:var(--red)">把第 ${lv} 級 ・ ${L} 關重設？</h2>
+        <p class="muted">這一關的 <b>${st.total}</b> 個字會全部變回「沒學過」（目前已學會 ${st.known} 個），
+          星星與通關紀錄也會清掉，下次進來會重新出學習卡。</p>
+        <p class="tiny">作答歷史、金幣、XP、徽章都不會動；成績單裡以前的紀錄還在。<b>無法復原</b>。</p>
+        <div class="btnrow" style="justify-content:center;margin-top:12px">
+          <button class="btn ghost" data-close="yes" style="color:var(--red)">確定重設</button>
+          <button class="btn primary" data-close="no">取消</button></div>`,
+        r => {
+          if (r !== 'yes') return letterSetup(+lv, L);
+          const out = S.resetStage(+lv, L);
+          toast(`第 ${lv} 級 ・ ${L} 關已重設（${out.words} 個字回到未學習）`);
+          letterSetup(+lv, L);
+        });
+    }
     const mback = t.closest('[data-mapback]');
     if (mback) return mapLetters(+mback.dataset.mapback);
     const mst = t.closest('[data-mapstage]');

@@ -1766,6 +1766,20 @@
 
   function reset() { localStorage.removeItem(KEY); S = null; }
 
+  /** 把一個字母關整個恢復成「從來沒學過」。
+     刪掉的是這些字的排程紀錄（box／到期日／自評已會）與這一關的通關紀錄，
+     所以：進度歸零、星星消失、下次進來會重新出學習卡、也會重新出現在快速篩選清單裡。
+     **不動**作答歷史（每日紀錄、成績單、金幣、XP、徽章）—— 以前考過什麼還是查得到。 */
+  function resetStage(lv, letter) {
+    const s = load(), ids = bucket(lv, letter), key = lv + ':' + letter;
+    let n = 0;
+    ids.forEach(i => { if (s.words[i]) { delete s.words[i]; n++; } });
+    const had = !!(s.map && s.map[key]);
+    if (had) delete s.map[key];
+    save(true);
+    return { lv, letter, words: n, total: ids.length, hadRecord: had };
+  }
+
   window.Store = {
     load, save, todayStr, addDays, daysBetween,
     rec, isKnown, isSeen, answer, errWeight, wrongPool, leeches,
@@ -1777,7 +1791,7 @@
     levelReward, claimLevelUps,
     addXp, xpLevel, xpInLevel, XP_PER_LEVEL, touchStreak,
     BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
-    summary, history, reset,
+    summary, history, reset, resetStage,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
     KEY_ACTS, KEY_DEFAULTS, keys, keyOf, setKey, resetKeys,

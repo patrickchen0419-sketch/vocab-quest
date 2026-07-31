@@ -436,6 +436,37 @@ t('用快速篩選把一個字母篩完，字母磚直接顯示 ★★★', () =
   s.words = {}; s.map = {};
 });
 
+t('在關卡頁按「重設這一關」，確認後那個字母整個回到未學習', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  S.bucket(2, 'I').forEach(i => S.markKnown(i, 3));
+  goHome();
+  click('[data-maplv="2"]');
+  click('[data-mapletter="2:I"]');
+  assert(has('已 100% 完成'), '前置條件：I 關應該是完成的');
+  click('[data-resetstage="2:I"]');
+  assert(has('重設'), '沒跳出確認視窗：' + txt().slice(0, 300));
+  click('[data-close="yes"]');
+  assert(S.mapStat(2, 'I').known === 0, 'I 關的字沒有回到未學習');
+  assert(!has('已 100% 完成'), '重設後還顯示已完成');
+  assert(!doc.querySelector('[data-resetstage="2:I"]'), '沒進度了就不該再出現重設鈕');
+  s.words = {}; s.map = {};
+});
+
+t('重設的確認視窗按取消，什麼都不會動', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  S.bucket(2, 'I').forEach(i => S.markKnown(i, 3));
+  goHome();
+  click('[data-maplv="2"]');
+  click('[data-mapletter="2:I"]');
+  click('[data-resetstage="2:I"]');
+  click('[data-close="no"]');
+  assert(S.mapStat(2, 'I').known === S.bucket(2, 'I').length, '按取消卻把進度清掉了');
+  assert(has('已 100% 完成'), '按取消後沒回到原本的關卡頁');
+  s.words = {}; s.map = {};
+});
+
 t('100% 完成後才顯示星星，字母磚也會標成完成', () => {
   // 把 B 關剩下的字全部標成已學會，模擬完成度 100%
   S.bucket(3, 'B').forEach(i => S.markKnown(i, 2));

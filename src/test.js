@@ -900,6 +900,25 @@ t('還沒全部學會就不會自動完成', () => {
   s.words = {}; s.map = {};
 });
 
+t('重設一關：那些字回到沒學過，星星與通關紀錄清掉，別的關不受影響', () => {
+  const s = S.load();
+  s.words = {}; s.map = {};
+  S.bucket(2, 'I').forEach(i => S.markKnown(i, 3));
+  S.bucket(2, 'J').forEach(i => S.markKnown(i, 3));
+  S.recordStage(2, 'I', true, 1, 3, 5);
+  assert(S.mapStat(2, 'I').full === true, '前置條件：I 關應該是完成的');
+
+  const out = S.resetStage(2, 'I');
+  assert(out.words === S.bucket(2, 'I').length, `該清的字數不對：${out.words}`);
+  const st = S.mapStat(2, 'I');
+  assert(st.known === 0, 'I 關還有字被記成學會：' + st.known);
+  assert(st.full === false && st.cleared === false, 'I 關還記著通關');
+  assert(st.stars === 0 && st.tries === 0, '星星／挑戰次數沒清掉');
+  assert(S.bucket(2, 'I').every(i => !S.isSeen(i) && S.needsCard(i)), '重設後應該要重新出學習卡');
+  assert(S.mapStat(2, 'J').full === true, '不該動到隔壁的 J 關');
+  s.words = {}; s.map = {};
+});
+
 t('通關才記 cleared，連勝正確增減', () => {
   const p = S.profile;
   p.winStreak = 0; p.inventory = {};
@@ -1506,8 +1525,9 @@ t('已經擁有的單品不會再上特價', () => {
 
 t('買特價商品時扣的是特價', () => {
   const p = S.profile;
-  p.inventory = {}; p.coins = 5000;
+  p.inventory = {}; p.coins = 0;
   const d = S.dealsToday()[0];
+  p.coins = d.cost + 1000;                 // 特價品可能很貴（商店走香港機場路線），錢照今天的價開
   const before = S.coins();
   const r = S.buy(d.id);
   assert(r.ok === true, '買不到特價商品：' + r.msg);
