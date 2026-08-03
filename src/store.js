@@ -487,17 +487,53 @@
     save();
     return { total: s.profile.xp, levelUp: xpLevel(s.profile.xp) > before, level: xpLevel(s.profile.xp) };
   }
-  /* 升等獎勵。金幣隨等級遞增，偶數等給一個消耗品，特定等級解鎖外觀／稱號。
+  /* 升等獎勵：整張表是用等級「算」出來的，不是手寫清單，所以到 Lv.999 都有獎可發。
+     結構是四層，高層蓋低層：
+       每 1 等  → 金幣 + 一個消耗品（照 GIFT_CYCLE 輪，八等一輪）
+       每 10 等 → 大獎：金寶箱 + 鑰匙 + 星塵 + 加碼金幣
+       每 50 等 → 更大：彩虹寶箱 + 金鑽石 + 鑰匙
+       每 100 等 → 里程碑：彩虹寶箱 ×3 + 大把金幣素材 + 升等限定稱號（商店買不到）
      rewardedLevel 記住已經發到第幾等，所以同一等不會重複領。 */
-  const LEVEL_GIFTS = ['heart', 'fifty', 'hourglass', 'xp2'];
-  const LEVEL_UNLOCK = { 5: 'theme_forest', 8: 'title_scholar', 12: 'theme_sunset', 16: 'title_hunter' };
+  const GIFT_CYCLE = ['fifty', 'heart', 'hourglass', 'xp2', 'bigheart', 'hourglass2', 'shield', 'revive'];
+  const LEVEL_UNLOCK = {
+    5: 'theme_forest', 8: 'title_scholar', 12: 'theme_sunset', 16: 'title_hunter',
+    20: 'theme_ocean', 30: 'theme_sakura', 40: 'theme_night', 60: 'theme_aurora',
+    25: 'title_lv25', 50: 'title_lv50', 75: 'title_lv75',
+  };
+  /* 百級稱號用中文數字現場組出來（一百級、兩百級……），所以幾百等都有新稱號。 */
+  const CN_NUM = ['', '一', '兩', '三', '四', '五', '六', '七', '八', '九'];
+  function hundredTitle(lv) {
+    const h = lv / 100;
+    const name = h <= 9 ? CN_NUM[h] + '百級' : lv + ' 級';
+    const flavor = ['傳說', '神話', '不朽', '永恆', '超凡', '無雙', '至尊', '天啟', '創世'][Math.min(h - 1, 8)];
+    return { id: 'title_lv' + lv, name: `稱號：${name}${flavor}`, kind: 'title', rarity: h >= 2 ? 'ultra' : 'legend', cost: 0, levelOnly: lv, desc: `升到 Lv.${lv} 才拿得到，有錢也買不到` };
+  }
   function levelReward(lv) {
-    return {
+    const r = {
       level: lv,
-      coin: 20 + lv * 5,
-      item: lv % 2 === 0 ? LEVEL_GIFTS[(lv / 2 - 1) % LEVEL_GIFTS.length] : null,
+      coin: 25 + lv * 5,
+      item: GIFT_CYCLE[(lv - 1) % GIFT_CYCLE.length],
       unlock: LEVEL_UNLOCK[lv] || null,
+      chest: null, chestN: 0, mats: null, big: null,
     };
+    if (lv % 100 === 0) {
+      r.big = { name: `Lv.${lv} 里程碑`, tier: 'hundred' };
+      r.chest = 'rainbow'; r.chestN = 3;
+      r.coin += 2000 + lv * 10;
+      r.mats = { gem_gold: 5, key: 2, stardust: 10 };
+      r.unlock = hundredTitle(lv).id;
+    } else if (lv % 50 === 0) {
+      r.big = { name: `Lv.${lv} 半百大獎`, tier: 'fifty' };
+      r.chest = 'rainbow'; r.chestN = 1;
+      r.coin += 500 + lv * 6;
+      r.mats = { gem_gold: 3, key: 1, stardust: 5 };
+    } else if (lv % 10 === 0) {
+      r.big = { name: `Lv.${lv} 十級大獎`, tier: 'ten' };
+      r.chest = 'gold'; r.chestN = 1;
+      r.coin += 150 + lv * 5;
+      r.mats = { stardust: 3, key: 1 };
+    }
+    return r;
   }
   /** 發放還沒領的升等獎勵，回傳這次領到的清單（沒升等就是空陣列）。 */
   function claimLevelUps() {
@@ -510,6 +546,8 @@
       addCoins(r.coin);
       if (r.item) inv[r.item] = (inv[r.item] || 0) + 1;
       if (r.unlock && !inv[r.unlock]) inv[r.unlock] = 1;
+      if (r.mats) grantMats(Object.keys(r.mats).map(k => ({ id: k, n: r.mats[k] })), `升等 Lv.${lv}`);
+      for (let i = 0; i < r.chestN; i++) addChest(r.chest, `升等 Lv.${lv}`);
       got.push(r);
     }
     p.rewardedLevel = cur;
@@ -583,6 +621,7 @@
     { id: 'combo50', name: '五十連擊', tier: 'epic', desc: '單關連續答對 50 題', test: st => st.bestCombo >= 50, prog: st => [st.bestCombo, 50] },
     { id: 'master1000', name: '長期記憶・千字', tier: 'epic', desc: '1000 個字進入長期記憶（box 5 以上）', test: st => st.mastered >= 1000, prog: st => [st.mastered, 1000] },
     { id: 'lv20', name: '二十級', tier: 'epic', desc: '等級達到 Lv.20', test: st => st.level >= 20, prog: st => [st.level, 20] },
+    { id: 'lv50', name: '五十級', tier: 'epic', desc: '等級達到 Lv.50', test: st => st.level >= 50, prog: st => [st.level, 50] },
     { id: 'stars200', name: '星塵滿載', tier: 'epic', desc: '累積 200 顆星', test: st => st.stars >= 200, prog: st => [st.stars, 200] },
     { id: 'writer100', name: '百句作家', tier: 'epic', desc: '累積寫下 100 句自由造句', test: st => st.freeCount >= 100, prog: st => [st.freeCount, 100] },
     { id: 'hell10', name: '地獄常客', tier: 'epic', desc: '在「地獄」難度通關 10 次', test: st => st.hellClears >= 10, prog: st => [st.hellClears, 10] },
@@ -590,6 +629,7 @@
     { id: 'w4000', name: '四千字斬', tier: 'legend', desc: '學會 4000 個單字', test: st => st.known >= 4000, prog: st => [st.known, 4000] },
     { id: 'streak100', name: '百日不輟', tier: 'legend', desc: '連續學習 100 天', test: st => st.streak >= 100, prog: st => [st.streak, 100] },
     { id: 'gram32', name: '文法全通', tier: 'legend', desc: '32 個文法點全部精熟', test: st => st.gramDone >= 32, prog: st => [st.gramDone, 32] },
+    { id: 'lv100', name: '百級傳說', tier: 'legend', desc: '等級達到 Lv.100', test: st => st.level >= 100, prog: st => [st.level, 100] },
     { id: 'allstage', name: '走完全圖', tier: 'legend', desc: '六個大關的每一個字母關都通過', test: st => st.playableStages > 0 && st.clearedStages >= st.playableStages, prog: st => [st.clearedStages, st.playableStages || 150] },
     { id: 'allthree', name: '全三星', tier: 'legend', desc: '每一個字母關都拿到三星', test: st => st.playableStages > 0 && st.threeStars >= st.playableStages, prog: st => [st.threeStars, st.playableStages || 150] },
     // --- 究極（全書）---
@@ -844,17 +884,39 @@
     { id: 'theme_night', name: '主題：星空', cost: 4500, kind: 'theme', rarity: 'legend', desc: '深紫星空配色' },
     { id: 'theme_aurora', name: '主題：極光', cost: 9000, kind: 'theme', rarity: 'legend', desc: '青綠極光配色' },
     { id: 'theme_gold', name: '主題：黃金', cost: 20000, kind: 'theme', rarity: 'ultra', desc: '整站鑲金。最貴的虛榮。' },
-    // 稱號：只留三個，最後一個貴到誇張
+    // 稱號：能買的只留三個，最後一個貴到誇張
     { id: 'title_scholar', name: '稱號：苦讀生', cost: 1200, kind: 'title', rarity: 'common', desc: '顯示在頂端' },
     { id: 'title_hunter', name: '稱號：獵字人', cost: 2500, kind: 'title', rarity: 'rare', desc: '顯示在頂端' },
     { id: 'title_hero', name: '稱號：六級勇者', cost: 25000, kind: 'title', rarity: 'ultra', desc: '存到這個的人，大概已經背完全書了' },
+    // 升等限定稱號：cost 0 + levelOnly，商店買不到、也不會上特價，只能靠升等發下來
+    { id: 'title_lv25', name: '稱號：廿五級開拓者', cost: 0, levelOnly: 25, kind: 'title', rarity: 'rare', desc: '升到 Lv.25 自動獲得，有錢也買不到' },
+    { id: 'title_lv50', name: '稱號：五十級大師', cost: 0, levelOnly: 50, kind: 'title', rarity: 'epic', desc: '升到 Lv.50 自動獲得，有錢也買不到' },
+    { id: 'title_lv75', name: '稱號：七十五級宗師', cost: 0, levelOnly: 75, kind: 'title', rarity: 'legend', desc: '升到 Lv.75 自動獲得，有錢也買不到' },
   ];
   const RARITY = {
     common: { name: '普通', cls: 'r-common' }, rare: { name: '稀有', cls: 'r-rare' },
     epic: { name: '史詩', cls: 'r-epic' }, legend: { name: '傳說', cls: 'r-legend' },
     ultra: { name: '究極', cls: 'r-ultra' },
   };
-  const shopItem = id => SHOP.find(x => x.id === id);
+  /* 百級稱號（title_lv100、title_lv200……）不在 SHOP 清單裡，是照規則生出來的，
+     所以這裡要能解析它們 —— 頂端顯示、裝備、升等發獎都靠這個查名字。 */
+  function shopItem(id) {
+    const hit = SHOP.find(x => x.id === id);
+    if (hit) return hit;
+    const m = /^title_lv(\d+)$/.exec(id || '');
+    return (m && +m[1] >= 100 && +m[1] % 100 === 0) ? hundredTitle(+m[1]) : undefined;
+  }
+  /** 升等限定的百級稱號：已拿到的 + 下一個目標（商店稱號區展示用）。 */
+  function levelTitles() {
+    const inv = inventory(), out = [];
+    for (const id in inv) {
+      const m = /^title_lv(\d+)$/.exec(id);
+      if (m && +m[1] % 100 === 0) out.push(hundredTitle(+m[1]));
+    }
+    out.sort((a, b) => a.levelOnly - b.levelOnly);
+    out.push(hundredTitle((Math.floor(xpLevel(load().profile.xp) / 100) + 1) * 100));
+    return out;
+  }
 
   /* 被動效果集中在這裡算，畫面與結算都呼叫同一組函式。
      刻意沒有任何「看答案／跳過題目」的效果 —— 那會污染作答紀錄與複習排程。 */
@@ -937,6 +999,7 @@
   function buy(id) {
     const it = shopItem(id);
     if (!it) return { ok: false, msg: '沒有這個道具' };
+    if (it.levelOnly) return { ok: false, msg: `這是升等限定，升到 Lv.${it.levelOnly} 才會發` };
     // 素材包可以重複買（買了直接變素材）；消耗品也可以疊；其他一件就夠
     if (it.kind !== 'consumable' && it.kind !== 'pack' && owned(id)) return { ok: false, msg: '已經有了' };
     const cost = priceOf(id);
@@ -1788,7 +1851,7 @@
     day, logAnswer, logGrammar, logFree, markNew, finishStage,
     startRun, endRun, findRun, runLog, runSeconds,
     answerLog, logTotals, progress,
-    levelReward, claimLevelUps,
+    levelReward, claimLevelUps, levelTitles,
     addXp, xpLevel, xpInLevel, XP_PER_LEVEL, touchStreak,
     BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
     summary, history, reset, resetStage,

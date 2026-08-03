@@ -518,24 +518,29 @@
     }, extra || {}));
   }
 
-  /** 升等獎勵：金幣、道具、外觀解鎖。結算畫面畫完後才蓋上去。 */
+  /** 升等獎勵：金幣、道具、寶箱、素材、外觀解鎖。結算畫面畫完後才蓋上去。 */
   function showLevelUps(gifts) {
     if (!gifts || !gifts.length) return;
     sfx.lvl();
     const rows = gifts.map(g => {
       const it = g.item && S.shopItem(g.item);
       const un = g.unlock && S.shopItem(g.unlock);
+      const chest = g.chest && S.CHEST[g.chest];
+      const mats = g.mats ? Object.keys(g.mats).map(k => `${S.material(k).icon} ${esc(S.material(k).name)} ×${g.mats[k]}`).join('　') : '';
       return `<div style="border-top:1px solid var(--line);padding:10px 0">
-        <b style="color:var(--purple)">Lv.${g.level}</b>
+        <b style="color:var(--purple)">Lv.${g.level}</b>${g.big ? ` <span class="chip gold">🎉 ${esc(g.big.name)}</span>` : ''}
         <div class="tiny">🪙 +${g.coin} 金幣${it ? `　🧪 ${esc(it.name)} ×1` : ''}${un ? `　🎁 解鎖「${esc(un.name)}」` : ''}</div>
+        ${chest ? `<div class="tiny">${chest.icon} ${esc(chest.name)} ×${g.chestN}（放進背包，想開再開）</div>` : ''}
+        ${mats ? `<div class="tiny">${mats}</div>` : ''}
       </div>`;
     }).join('');
     const last = gifts[gifts.length - 1];
-    overlay(`<div class="big" style="color:var(--purple)">⬆ 升級！Lv.${last.level}</div>
-      <p class="muted">升等獎勵已經放進你的背包了。</p>
+    const hitBig = gifts.some(g => g.big);
+    overlay(`<div class="big" style="color:var(--purple)">${hitBig ? '🎆 里程碑達成！' : '⬆ 升級！'}Lv.${last.level}</div>
+      <p class="muted">升等獎勵已經放進你的背包了。${hitBig ? '寶箱收在背包裡，隨時可以開。' : ''}</p>
       ${memeTag('levelup')}
       ${rows}
-      <p class="tiny" style="margin-top:8px">消耗品會在下一關開始時自動使用；外觀與稱號到商店裡「使用」。</p>
+      <p class="tiny" style="margin-top:8px">每 10 等有大獎、每 50 等更大、每 100 等有限定稱號。消耗品在開關前選用；外觀與稱號到商店裡「使用」。</p>
       <div class="btnrow" style="justify-content:center;margin-top:12px">
         <button class="btn primary" data-close="ok">收下</button>
       </div>`);
@@ -2088,7 +2093,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const r = S.RARITY[it.rarity] || S.RARITY.common;
     const btn = isEquip && have
       ? `<button class="btn sm ${on ? 'primary' : ''}" data-equip="${it.id}">${on ? '使用中' : '使用'}</button>`
-      : `<button class="btn sm ${afford ? 'gold' : ''}" data-buy="${it.id}" ${afford ? '' : 'disabled'}>🪙 ${price}</button>`;
+      : it.levelOnly
+        ? `<button class="btn sm" disabled>🔒 Lv.${it.levelOnly} 解鎖</button>`
+        : `<button class="btn sm ${afford ? 'gold' : ''}" data-buy="${it.id}" ${afford ? '' : 'disabled'}>🪙 ${price}</button>`;
     return `<div class="item ${r.cls} ${on ? 'equipped' : ''} ${deal ? 'ondeal' : ''}">
       ${deal ? '<span class="dealtag">-25%</span>' : ''}
       <div class="ihead"><span class="iicon">${KIND_ICON[it.kind] || '·'}</span><span class="rtag">${r.name}</span></div>
@@ -2108,7 +2115,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const inv = S.inventory(), coins = S.coins();
     const deals = S.dealsToday();
     const group = (kind, title, note) => {
-      const items = S.SHOP.filter(x => x.kind === kind);
+      let items = S.SHOP.filter(x => x.kind === kind);
+      // 稱號區加上升等限定的百級稱號（已拿到的＋下一個目標），當成收集目標展示
+      if (kind === 'title') items = items.concat(S.levelTitles());
       if (!items.length) return '';
       return `<div class="card"><h3>${title}</h3>${note ? `<p class="tiny">${note}</p>` : ''}
         <div class="shelf">${items.map(it => shopItemCard(it, inv, coins)).join('')}</div></div>`;
@@ -2131,7 +2140,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     ${group('auto', '🛡 護符（被動）', '持有就自動生效，效果可以疊加。價格很痛，但一次買終身有效。')}
     ${group('pet', '🐾 夥伴', '同時只能帶一隻，效果永久生效。')}
     ${group('theme', '🎨 外觀主題', '買了到背包或這裡按「使用」就會換整站配色。')}
-    ${group('title', '🏷 稱號', '顯示在左上角品牌名旁邊。')}
+    ${group('title', '🏷 稱號', '顯示在左上角品牌名旁邊。🔒 的是升等限定：Lv.25／50／75 各一個，之後每 100 等再一個，商店買不到。')}
     `);
   }
 
@@ -2322,7 +2331,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     }).join('');
 
     const consum = S.SHOP.filter(x => x.kind === 'consumable' && inv[x.id]);
-    const collect = S.SHOP.filter(x => (x.kind === 'theme' || x.kind === 'title' || x.kind === 'pet' || x.kind === 'auto') && inv[x.id]);
+    const collect = S.SHOP.filter(x => (x.kind === 'theme' || x.kind === 'title' || x.kind === 'pet' || x.kind === 'auto') && inv[x.id])
+      .concat(S.levelTitles().filter(t => inv[t.id]));   // 百級稱號不在 SHOP 清單裡，另外補進收藏
 
     const recipes = S.RECIPES.map(r => {
       const outName = r.kindOut === 'material' ? S.material(r.out).name : (S.shopItem(r.out) || {}).name;

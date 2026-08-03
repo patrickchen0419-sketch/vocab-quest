@@ -64,6 +64,7 @@ body {
   white-space: nowrap;
 }
 .chip.streak { color: var(--gold); }
+.chip.gold { color: var(--gold); border-color: var(--gold); }
 .chip.xp { color: var(--ac); }
 .chip.lvl { color: var(--purple); }
 .chip.win { color: var(--blue); }

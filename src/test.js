@@ -1015,6 +1015,36 @@ t('升等會發獎勵，而且同一等只發一次', () => {
   assert(S.levelReward(5).unlock === 'theme_forest', 'Lv.5 應該解鎖主題');
 });
 
+t('每一等都有道具；10／50／100 等有大獎', () => {
+  assert(S.levelReward(3).item, '單數等也要有道具');
+  assert(S.levelReward(7).item, '每一等都要有道具');
+  const r10 = S.levelReward(10);
+  assert(r10.big && r10.chest === 'gold' && r10.mats.key === 1, 'Lv.10 要給金寶箱＋鑰匙');
+  const r50 = S.levelReward(50);
+  assert(r50.chest === 'rainbow' && r50.mats.gem_gold === 3, 'Lv.50 要給彩虹寶箱＋金鑽石');
+  assert(r50.unlock === 'title_lv50', 'Lv.50 要發限定稱號');
+  const r100 = S.levelReward(100);
+  assert(r100.chest === 'rainbow' && r100.chestN === 3, 'Lv.100 要給三個彩虹寶箱');
+  assert(r100.unlock === 'title_lv100', 'Lv.100 要發百級限定稱號');
+  assert(S.levelReward(730).item && S.levelReward(730).coin > 0, '幾百等之後也要有獎可發');
+});
+
+t('百級稱號查得到名字、買不到、升等會真的發下來', () => {
+  assert(S.shopItem('title_lv100').name.includes('一百級'), '百級稱號要查得到名字');
+  assert(S.shopItem('title_lv200').name.includes('兩百級'), '兩百級稱號名字不對');
+  assert(!S.buy('title_lv50').ok, '升等限定稱號不能用買的');
+  assert(!S.buy('title_lv100').ok, '百級稱號不能用買的');
+  const p = S.profile;
+  p.xp = 0; p.rewardedLevel = 1;
+  const chests = S.chestBagSummary().total, keys = S.matCount('key');
+  S.addXp(S.XP_PER_LEVEL * 9);                  // 直接衝到 Lv.10
+  const got = S.claimLevelUps();
+  assert(got.length === 9, 'Lv.2〜10 應該各發一次：' + got.length);
+  assert(S.chestBagSummary().total === chests + 1, 'Lv.10 的金寶箱要進背包');
+  assert(S.matCount('key') === keys + 1, 'Lv.10 的鑰匙要進素材背包');
+  assert(S.levelTitles().some(t => t.id === 'title_lv100'), '商店要展示下一個百級稱號目標');
+});
+
 console.log('\n--- 寶箱 ---');
 t('大寶箱不能隨便給：金寶箱要 10 題以上全對不重來', () => {
   assert(S.chestTier({ stars: 3, retries: 0, count: 5 }) === 'silver', '小關卡全對只能給銀寶箱');
@@ -1218,8 +1248,10 @@ t('商品變多也變貴，且分稀有度', () => {
   ['consumable', 'auto', 'pet', 'theme', 'title'].forEach(k =>
     assert(S.SHOP.some(x => x.kind === k), '缺少類別：' + k));
   assert(S.SHOP.every(x => S.RARITY[x.rarity], '每件商品都要有稀有度'));
-  assert(S.SHOP.every(x => x.cost >= 35), '有商品太便宜：' + S.SHOP.filter(x => x.cost < 35).map(x => x.name));
-  assert(Math.max(...S.SHOP.map(x => x.cost)) >= 1000, '應該有很貴的收藏品');
+  // levelOnly 是升等限定的非賣品（cost 0），不算「商品」
+  const forSale = S.SHOP.filter(x => !x.levelOnly);
+  assert(forSale.every(x => x.cost >= 35), '有商品太便宜：' + forSale.filter(x => x.cost < 35).map(x => x.name));
+  assert(Math.max(...forSale.map(x => x.cost)) >= 1000, '應該有很貴的收藏品');
 });
 
 t('被動道具與夥伴會影響倍率', () => {
@@ -1320,10 +1352,11 @@ t('全新玩家不會拿到補償（本來就沒被燒過）', () => {
 });
 
 console.log('\n--- 商店經濟（北歐物價）---');
-t('商品變多、有素材包、稱號只留三個', () => {
+t('商品變多、有素材包、能買的稱號只留三個', () => {
   assert(S.SHOP.length >= 30, '商品數太少：' + S.SHOP.length);
-  const titles = S.SHOP.filter(x => x.kind === 'title');
-  assert(titles.length === 3, '稱號應該只留 3 個，實際 ' + titles.length);
+  const titles = S.SHOP.filter(x => x.kind === 'title' && !x.levelOnly);
+  assert(titles.length === 3, '能買的稱號應該只留 3 個，實際 ' + titles.length);
+  S.SHOP.filter(x => x.levelOnly).forEach(x => assert(!S.buy(x.id).ok, x.id + ' 不該買得到'));
   const packs = S.SHOP.filter(x => x.kind === 'pack');
   assert(packs.length >= 4, '素材包太少：' + packs.length);
   packs.forEach(p => assert(p.give && Object.keys(p.give).length, p.id + ' 沒有內容物'));
@@ -1331,11 +1364,11 @@ t('商品變多、有素材包、稱號只留三個', () => {
 });
 
 t('價格很痛：最便宜也要 90，最貴超過 20000', () => {
-  const costs = S.SHOP.map(x => x.cost);
+  const costs = S.SHOP.filter(x => !x.levelOnly).map(x => x.cost);
   assert(Math.min(...costs) >= 90, '有商品太便宜：' + Math.min(...costs));
   assert(Math.max(...costs) >= 20000, '最貴的商品不夠貴：' + Math.max(...costs));
   // 一天認真學大約 300–600 金幣：傳說級要存好幾週才買得起
-  const legend = S.SHOP.filter(x => x.rarity === 'legend' || x.rarity === 'ultra');
+  const legend = S.SHOP.filter(x => !x.levelOnly && (x.rarity === 'legend' || x.rarity === 'ultra'));
   assert(legend.every(x => x.cost >= 3000), '傳說／究極商品應該都要 3000 以上');
 });
 
