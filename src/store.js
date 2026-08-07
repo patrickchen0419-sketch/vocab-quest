@@ -1884,6 +1884,105 @@
 
   function reset() { localStorage.removeItem(KEY); S = null; }
 
+  // ---------- 跨裝置同步 ----------
+  /* 同步碼＝密碼。去掉 0O1lI 這些看起來像的字，因為這組碼要在手機上手打。 */
+  const SYNC_ALPHA = '23456789abcdefghjkmnpqrstuvwxyz';
+  const SYNC_RE = /^[2-9a-hjkm-np-z]{4}-[2-9a-hjkm-np-z]{4}-[2-9a-hjkm-np-z]{4}$/;
+  function newSyncCode() {
+    let out = '';
+    for (let i = 0; i < 12; i++) {
+      out += SYNC_ALPHA[Math.floor(Math.random() * SYNC_ALPHA.length)];
+      if (i % 4 === 3 && i < 11) out += '-';
+    }
+    return out;
+  }
+  function syncCode() { return load().profile.settings.syncCode || ''; }
+  function setSyncCode(c) {
+    const v = String(c || '').trim().toLowerCase();
+    load().profile.settings.syncCode = v;
+    save(true);
+    return v;
+  }
+  function syncAt(t) {
+    const c = load().profile.settings;
+    if (t !== undefined) { c.syncAt = t; save(true); }
+    return c.syncAt || '';
+  }
+
+  /* 把雲端那一份合併進來。原則只有一條：**永遠取比較有進度的那一邊，絕不因為同步而倒退。**
+
+     為什麼不是「後寫入的贏」：兩台裝置都在學的時候，後同步的那台會把另一台的進度整包蓋掉——
+     那是最容易發生、也最傷的資料遺失，而且發生的當下完全沒有感覺。
+     取大值雖然理論上會讓「同一天在兩台各學 5 個字」算成 5 個而不是 10 個，
+     但那是少算，不是弄丟；反過來的錯誤是把整天的努力清掉。
+
+     設定（難度、按鍵、題數、外掛開關、同步碼本身）一律不合併：
+     那是「這台裝置怎麼玩」，不是進度。手機想用輕鬆模式，不該把電腦的地獄模式改掉。 */
+  function mergeRemote(remote) {
+    if (!remote || typeof remote !== 'object' || !remote.profile) return null;
+    const s = load(), p = s.profile, rp = remote.profile;
+    const out = { words: 0, days: 0, map: 0, badges: 0, xpBefore: p.xp || 0 };
+    const maxOf = (a, b) => Math.max(a || 0, b || 0);
+
+    ['xp', 'coins', 'streak', 'bestStreak', 'winStreak', 'bestWinStreak', 'bestCombo', 'rewardedLevel', 'chestSeq']
+      .forEach(k => { p[k] = maxOf(p[k], rp[k]); });
+    ['everPerfect', 'starterGiven', 'makeupOptIn', 'placed'].forEach(k => { p[k] = !!(p[k] || rp[k]); });
+
+    const got = new Set(p.badges || []);
+    (rp.badges || []).forEach(b => { if (!got.has(b)) { got.add(b); out.badges++; } });
+    p.badges = [...got];
+
+    // 道具與素材：每一項各自取多的那邊（相加會讓每同步一次就多一份）
+    ['inventory', 'materials'].forEach(k => {
+      const mine = p[k] = p[k] || {}, theirs = rp[k] || {};
+      for (const id in theirs) mine[id] = maxOf(mine[id], theirs[id]);
+    });
+    // 沒開的寶箱是一個個獨立的箱子，合併會憑空生出箱子 —— 取比較多的那一份就好
+    if ((rp.chestBag || []).length > (p.chestBag || []).length) p.chestBag = rp.chestBag;
+
+    // 熟練度：box 高的贏；一樣高就取複習日排得比較晚的（代表比較新）；作答次數取大值
+    const rw = remote.words || {};
+    for (const i in rw) {
+      const theirs = rw[i], mine = s.words[i];
+      if (!mine) { s.words[i] = theirs; out.words++; continue; }
+      const better = (theirs.b || 0) > (mine.b || 0)
+        || ((theirs.b || 0) === (mine.b || 0) && String(theirs.due || '') > String(mine.due || ''));
+      const merged = better ? Object.assign({}, mine, theirs) : Object.assign({}, theirs, mine);
+      ['s', 'r', 'wr', 'fr', 'fs'].forEach(k => { merged[k] = maxOf(mine[k], theirs[k]); });
+      if (better) out.words++;
+      s.words[i] = merged;
+    }
+
+    /* 每日紀錄：同一天以「題數比較多」的那一份為準。
+       不把兩邊的 log 接起來，是因為同一題會被算兩次 —— 正確率、任務進度全部會被灌水。 */
+    const rd = remote.days || {};
+    for (const t in rd) {
+      const mine = s.days[t];
+      if (!mine) { s.days[t] = rd[t]; out.days++; continue; }
+      if ((rd[t].log || []).length > (mine.log || []).length) { s.days[t] = rd[t]; out.days++; }
+    }
+
+    // 闖關地圖：通關過就是通關過，星數取高的
+    const rm = remote.map || {};
+    s.map = s.map || {};
+    for (const k in rm) {
+      const mine = s.map[k] || {}, theirs = rm[k] || {};
+      const next = {
+        cleared: !!(mine.cleared || theirs.cleared),
+        stars: maxOf(mine.stars, theirs.stars),
+        tries: maxOf(mine.tries, theirs.tries),
+        best: Math.max(mine.best || 0, theirs.best || 0),
+        combo: maxOf(mine.combo, theirs.combo),
+      };
+      if (next.stars > (mine.stars || 0) || (next.cleared && !mine.cleared)) out.map++;
+      s.map[k] = next;
+    }
+
+    out.xpAfter = p.xp || 0;
+    save(true);
+    return out;
+  }
+
   /** 把一個字母關整個恢復成「從來沒學過」。
      刪掉的是這些字的排程紀錄（box／到期日／自評已會）與這一關的通關紀錄，
      所以：進度歸零、星星消失、下次進來會重新出學習卡、也會重新出現在快速篩選清單裡。
@@ -1910,6 +2009,7 @@
     addXp, xpLevel, xpInLevel, XP_PER_LEVEL, touchStreak,
     BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
     summary, history, reset, resetStage,
+    SYNC_RE, newSyncCode, syncCode, setSyncCode, syncAt, mergeRemote,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     SECRET_DIFFS, diffList, diffRank, diffForced, secretDiff, setSecretDiff,
     CHEAT_KEYS, CHEAT_NAMES, cheats, cheat, setCheat, cheating,

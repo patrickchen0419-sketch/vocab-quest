@@ -1729,5 +1729,113 @@ t('progress() 給出畫進度條需要的所有數字', () => {
   assert(pg.inLevel + (S.XP_PER_LEVEL - pg.inLevel) === S.XP_PER_LEVEL, '等級進度算錯');
 });
 
+console.log('\n--- 跨裝置同步 ---');
+t('同步碼：格式固定、每次都不一樣、不含看起來像的字', () => {
+  const a = S.newSyncCode(), b = S.newSyncCode();
+  assert(S.SYNC_RE.test(a), '格式不對：' + a);
+  assert(a !== b, '每次產生的碼一樣');
+  assert(!/[01ilo]/.test(a), '含有容易看錯的字元：' + a);
+  assert(S.setSyncCode('  K7M2-X9PQ-4RJB ') === 'k7m2-x9pq-4rjb', '沒有去空白＋轉小寫');
+  assert(S.SYNC_RE.test(S.syncCode()), '存起來的碼格式不對');
+});
+
+t('合併：雲端有、本機沒有的字會補進來', () => {
+  S.reset();
+  const before = Object.keys(S.load().words).length;
+  const out = S.mergeRemote({ profile: {}, words: { 5: { b: 3, due: '2026-12-01', s: 4, r: 3, wr: 1 } }, days: {}, map: {} });
+  assert(out, '合併沒有回傳結果');
+  assert(Object.keys(S.load().words).length === before + 1, '字沒有補進來');
+  assert(S.load().words[5].b === 3, 'box 不對');
+  assert(out.words === 1, '回報的字數不對：' + out.words);
+});
+
+t('合併只會往前，不會把進度往回拉', () => {
+  S.reset();
+  S.load().words[7] = { b: 5, due: '2026-12-31', s: 10, r: 9, wr: 1, fr: 8, fs: 9 };
+  S.profile.xp = 5000;
+  S.profile.coins = 900;
+  S.mergeRemote({
+    profile: { xp: 100, coins: 10 },
+    words: { 7: { b: 1, due: '2026-01-01', s: 2, r: 1, wr: 1, fr: 1, fs: 2 } },
+    days: {}, map: {},
+  });
+  assert(S.load().words[7].b === 5, '熟練度被雲端的舊資料拉低了：' + S.load().words[7].b);
+  assert(S.load().words[7].due === '2026-12-31', '複習日被改掉了');
+  assert(S.profile.xp === 5000, 'XP 被拉低：' + S.profile.xp);
+  assert(S.profile.coins === 900, '金幣被拉低：' + S.profile.coins);
+  assert(S.load().words[7].s === 10, '作答次數被拉低');
+});
+
+t('合併：雲端比較新的時候會蓋過來', () => {
+  S.reset();
+  S.load().words[9] = { b: 1, due: '2026-01-01', s: 2, r: 1, wr: 1 };
+  S.profile.xp = 100;
+  const out = S.mergeRemote({
+    profile: { xp: 8000, badges: ['start', 'w100'] },
+    words: { 9: { b: 4, due: '2026-11-11', s: 9, r: 8, wr: 1 } },
+    days: {}, map: {},
+  });
+  assert(S.load().words[9].b === 4, '沒有採用雲端比較高的 box');
+  assert(S.profile.xp === 8000, 'XP 沒跟上：' + S.profile.xp);
+  assert(S.profile.badges.length === 2, '成就沒有聯集：' + S.profile.badges.join(','));
+  assert(out.badges === 2, '回報的成就數不對');
+});
+
+t('合併：關卡通關過就是通關過，星數取高的', () => {
+  S.reset();
+  S.load().map = { '1:A': { cleared: true, stars: 1, tries: 3, best: 0.9 } };
+  S.mergeRemote({
+    profile: {}, words: {}, days: {},
+    map: { '1:A': { cleared: false, stars: 3, tries: 1, best: 1 }, '2:B': { cleared: true, stars: 2, tries: 1, best: .95 } },
+  });
+  const m = S.load().map;
+  assert(m['1:A'].stars === 3, '星數沒取高的：' + m['1:A'].stars);
+  assert(m['1:A'].cleared === true, '通關狀態被洗掉');
+  assert(m['1:A'].tries === 3, '挑戰次數沒取多的');
+  assert(m['2:B'] && m['2:B'].stars === 2, '雲端獨有的關卡沒補進來');
+});
+
+t('合併：同一天以題數多的那份為準，不把兩邊的作答接起來', () => {
+  S.reset();
+  const t0 = S.todayStr();
+  S.load().days[t0] = { log: [{ i: 1, ok: true, attempt: 1 }], gram: [], free: [], runs: [], xp: 0, coin: 0 };
+  S.mergeRemote({
+    profile: {}, words: {}, map: {},
+    days: { [t0]: { log: [{ i: 2, ok: true, attempt: 1 }, { i: 3, ok: false, attempt: 1 }, { i: 4, ok: true, attempt: 1 }], gram: [], free: [], runs: [], xp: 0, coin: 0 } },
+  });
+  assert(S.load().days[t0].log.length === 3, '沒有採用題數多的那份：' + S.load().days[t0].log.length);
+});
+
+t('合併：道具取多的那邊，不會每同步一次就多一份', () => {
+  S.reset();
+  S.profile.inventory = { heart: 2, fifty: 5 };
+  const remote = { profile: { inventory: { heart: 7, hourglass: 1 } }, words: {}, days: {}, map: {} };
+  S.mergeRemote(remote);
+  S.mergeRemote(remote);                       // 同步兩次
+  const inv = S.inventory();
+  assert(inv.heart === 7, '護心符不是取大值：' + inv.heart);
+  assert(inv.fifty === 5, '本機獨有的道具不見了');
+  assert(inv.hourglass === 1, '同步兩次讓沙漏變多了：' + inv.hourglass);
+});
+
+t('合併不會動到這台裝置的設定', () => {
+  S.reset();
+  S.setDifficulty('extreme');
+  S.settings.stageQuestions = 25;
+  S.mergeRemote({
+    profile: { settings: { difficulty: 'easy', stageQuestions: 5, cheats: { god: true } } },
+    words: {}, days: {}, map: {},
+  });
+  assert(S.settings.difficulty === 'extreme', '難度被雲端改掉了：' + S.settings.difficulty);
+  assert(S.settings.stageQuestions === 25, '題數被改掉了');
+  assert(!S.cheat('god'), '雲端把作弊開關同步過來了');
+});
+
+t('合併：資料不像存檔就整包拒絕', () => {
+  assert(S.mergeRemote(null) === null, 'null 沒被擋掉');
+  assert(S.mergeRemote({}) === null, '空物件沒被擋掉');
+  assert(S.mergeRemote({ hello: 'world' }) === null, '亂七八糟的資料沒被擋掉');
+});
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

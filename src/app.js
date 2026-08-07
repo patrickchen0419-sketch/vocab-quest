@@ -2843,6 +2843,22 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <p class="tiny">每一題都有時限，但額度按「這題要做多少事」給：四選一只要辨認，句子重組要點十幾個詞塊。逾時若已經打了字，仍會照打的內容判分。</p>
     </div>
     <div class="card">
+      <h3>☁ 跨裝置同步</h3>
+      <p class="tiny">在每台裝置輸入<b>同一組同步碼</b>，進度就搬得過去。
+        下載是<b>合併不是覆蓋</b>：同一個字取熟練度高的那邊、關卡取星數高的、XP 取大的 ——
+        所以兩台都有練也不會互相蓋掉，按下去不會弄丟東西。</p>
+      <label class="row">同步碼：<input class="txt" style="font-size:16px;letter-spacing:1px;width:auto;margin:0;text-align:left"
+        value="${esc(S.syncCode())}" data-synccode placeholder="k7m2-x9pq-4rjb" spellcheck="false"></label>
+      <div class="btnrow">
+        <button class="btn sm ghost" data-act="syncNew">🎲 產生新的同步碼</button>
+        <button class="btn" data-act="syncUp">⬆ 上傳這台的進度</button>
+        <button class="btn primary" data-act="syncDown">⬇ 下載並合併</button>
+      </div>
+      <p class="tiny">${S.syncAt() ? `上次同步：${esc(String(S.syncAt()).slice(0, 16).replace('T', ' '))}` : '這台還沒同步過'}</p>
+      <p class="tiny">⚠ <b>同步碼等於密碼</b> —— 網站是公開的，誰拿到碼誰就能讀寫這份進度，不要外流。<br>
+        設定（難度、按鍵、每關題數、隱藏功能開關）<b>不會同步</b>，那是每台裝置自己的事。</p>
+    </div>
+    <div class="card">
       <h3>資料</h3>
       <div class="btnrow">
         <button class="btn" data-act="exportAll">⬇ 匯出全部學習資料</button>
@@ -3039,6 +3055,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       clearTimeout(window.__goalT);
       window.__goalT = setTimeout(() => { const st = S.goalStat(); S.setGoal({ planned: st.perDay }); settings(); }, 500);
     }
+    const sc = e.target.closest('[data-synccode]');
+    if (sc) S.setSyncCode(sc.value);        // 邊打邊存，換裝置輸入完就不用再按確定
     const gu = e.target.closest('[data-goaluntil]');
     if (gu && gu.value) {
       S.setGoal({ until: gu.value });
@@ -3322,6 +3340,13 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       download(`vocabQuest-backup-${S.todayStr()}.json`, JSON.stringify(S.load(), null, 2), 'application/json');
       return toast('已匯出備份');
     }
+    if (a === 'syncNew') {
+      const c = S.setSyncCode(S.newSyncCode());
+      toast(`新的同步碼：${c}　（其他裝置輸入同一組）`);
+      return settings();
+    }
+    if (a === 'syncUp') return syncUp();
+    if (a === 'syncDown') return syncDown();
     if (a === 'importAll') {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = '.json';
@@ -3353,6 +3378,62 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
           if (r === 'yes') { S.reset(); location.reload(); }
         });
     }
+  }
+
+  // ---------------- 跨裝置同步 ----------------
+  /* API 位址：雲端版走同源；本機版（雙擊 index.html 的 file://、或 127.0.0.1:8788）
+     打回線上那一份 —— 否則「在自己電腦上直接開檔案玩」的那一份會變成永遠同步不到的孤島。 */
+  const SYNC_HOME = 'https://english.dave0629.com';
+  function syncUrl() {
+    try {
+      const h = (location && location.hostname) || '';
+      const local = !h || h === 'localhost' || h === '127.0.0.1' || location.protocol === 'file:';
+      return (local ? SYNC_HOME : '') + '/api/sync';
+    } catch (e) { return '/api/sync'; }
+  }
+  /** 送出前的共同檢查：同步碼格式、這個環境能不能連線。 */
+  function syncReady() {
+    const code = S.syncCode();
+    if (!S.SYNC_RE.test(code)) { toast('同步碼格式不對，按「產生新的同步碼」'); return null; }
+    if (typeof fetch !== 'function') { toast('這個環境不能連線'); return null; }
+    return code;
+  }
+  function syncUp() {
+    const code = syncReady();
+    if (!code) return;
+    toast('上傳中…');
+    fetch(syncUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, data: S.load() }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (!j || !j.ok) throw new Error((j && j.error) || '上傳失敗');
+        S.syncAt(j.at);
+        sfx.ok();
+        toast('✅ 已上傳，其他裝置輸入同一組碼就抓得到');
+        settings();
+      })
+      .catch(e => toast('⚠ 上傳失敗：' + e.message));
+  }
+  function syncDown() {
+    const code = syncReady();
+    if (!code) return;
+    toast('下載中…');
+    fetch(syncUrl() + '?code=' + encodeURIComponent(code))
+      .then(r => r.json())
+      .then(j => {
+        if (!j || !j.ok) throw new Error((j && j.error) || '下載失敗');
+        const out = S.mergeRemote(j.data);
+        if (!out) throw new Error('雲端那份資料看起來不對');
+        S.syncAt(j.at);
+        sfx.clear();
+        const gained = out.xpAfter - out.xpBefore;
+        toast(`✅ 已合併：單字 ${out.words}、關卡 ${out.map}、天數 ${out.days}${gained ? `、XP +${gained}` : ''}`);
+        home();
+      })
+      .catch(e => toast('⚠ 下載失敗：' + e.message));
   }
 
   function nav(where) {

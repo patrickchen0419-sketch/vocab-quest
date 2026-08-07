@@ -82,7 +82,11 @@ class El {
   querySelectorAll(sel) { return query(this, sel); }
 }
 
+/* 沒有子節點、但用 textContent 塞過字的元素（toast、浮動鈕、倒數秒數）
+   也要吐出那段文字 —— 否則 has() 看不到任何用 textContent 寫的訊息，
+   「使用者到底看到什麼」這一類的斷言就等於沒在測。 */
 function serialize(el) {
+  if (!el.children.length && el._text) return el._text;
   return el.children.map(c => c instanceof El
     ? `<${c.tag}${Object.entries(c.attrs).map(([k, v]) => ` ${k}="${v}"`).join('')}>${serialize(c)}</${c.tag}>`
     : c).join('');
@@ -2228,8 +2232,10 @@ t('打 IDDQD → 切換無敵，而且畫面上不顯示任何痕跡', () => {
   assert(S.cheat('god'), 'IDDQD 沒開無敵');
   assert(S.cheating(), '沒被算成作弊中');
   goHome();
-  // 外掛要安靜：首頁不該冒出任何「作弊」字樣，開了沒有只有自己知道
-  assert(!has('作弊'), '畫面上出現了作弊字樣：' + txt().slice(0, 300));
+  /* 外掛要安靜：畫面上不該有任何標示，開了沒有只有自己知道。
+     這裡不能用 has('作弊') —— 首頁的隨機迷因台詞裡就有「作弊」兩個字。 */
+  assert(!doc.querySelector('.chip.cheat'), '頂端出現了作弊標示');
+  assert(!has('🛠 作弊'), '畫面上出現了作弊標示：' + txt().slice(0, 300));
   type('iddqd');
   assert(!S.cheat('god'), 'IDDQD 關不掉');
 });
@@ -2257,10 +2263,10 @@ t('作弊完全不留紀錄：關卡紀錄、作答紀錄、成績單都不寫',
   goHome();
   click('[data-go="records"]');
   click('[data-rtab="runs"]');
-  assert(!has('作弊'), '作答紀錄寫了作弊：' + txt().slice(0, 300));
+  assert(!has('🛠 作弊'), '作答紀錄寫了作弊：' + txt().slice(0, 300));
   goHome();
   click('[data-go="report"]');
-  assert(!has('作弊'), '成績單寫了作弊：' + txt().slice(0, 300));
+  assert(!has('作弊模式'), '成績單寫了作弊：' + txt().slice(0, 300));
 });
 
 t('透視：選擇題把正解框出來，填空題直接寫出答案', () => {
@@ -2310,6 +2316,43 @@ t('作弊選單：面板裡三個開關都能切，也能解鎖究極', () => {
   assert(!S.secretDiff() && S.settings.difficulty === 'normal', '面板關不掉、或沒回到原難度');
   click('[data-atab="data"]');
   click('[data-a="lock"]');
+});
+
+// ================= 跨裝置同步 =================
+console.log('\n--- 跨裝置同步 ---');
+t('設定頁有同步區，可以產生同步碼', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(has('跨裝置同步'), '設定頁沒有同步區');
+  assert(doc.querySelector('[data-synccode]'), '沒有同步碼輸入框');
+  click('[data-act="syncNew"]');
+  assert(S.SYNC_RE.test(S.syncCode()), '產生的碼格式不對：' + S.syncCode());
+  assert(txt().includes(S.syncCode()), '畫面沒有顯示產生的碼');
+});
+
+t('手動輸入的同步碼會即時存起來（換裝置只要打一次）', () => {
+  const box = doc.querySelector('[data-synccode]');
+  box.value = 'k7m2-x9pq-4rjb';
+  fire('input', box);
+  assert(S.syncCode() === 'k7m2-x9pq-4rjb', '沒有存下來：' + S.syncCode());
+});
+
+t('同步碼格式不對時，按上傳／下載會擋下來而不是送出去', () => {
+  S.setSyncCode('abc');
+  goHome();
+  click('[data-go="settings"]');
+  click('[data-act="syncUp"]');
+  assert(has('格式不對'), '沒擋下格式錯誤的碼：' + txt().slice(-200));
+  click('[data-act="syncDown"]');
+  assert(has('格式不對'), '下載沒擋');
+  S.setSyncCode(S.newSyncCode());
+});
+
+t('沒有連線能力的環境（例如直接開檔案）會講清楚，不會當掉', () => {
+  goHome();
+  click('[data-go="settings"]');
+  click('[data-act="syncUp"]');          // 測試環境沒有 fetch
+  assert(has('不能連線'), '沒有提示無法連線：' + txt().slice(-200));
 });
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
