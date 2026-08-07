@@ -64,7 +64,12 @@
       streak: 0, bestStreak: 0,
       lastStudy: null,
       badges: [],
-      settings: Object.assign({}, COUNT_DEFAULTS, { difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75, memes: true, keyBar: true, reviewMastered: false, sweepCheck: false, sweepBatch: 24, offKinds: [] }),
+      settings: Object.assign({}, COUNT_DEFAULTS, {
+        difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75,
+        memes: true, keyBar: true, reviewMastered: false, sweepCheck: false, sweepBatch: 24, offKinds: [],
+        secretDiff: false,                                        // 究極難度解鎖了沒
+        cheats: { god: false, noTimer: false, xray: false },      // 作弊開關（管理員面板／密技切換）
+      }),
     },
     words: {},
     days: {},
@@ -78,8 +83,58 @@
     normal:  { id: 'normal',  name: '標準', hearts: 5, time: 1.0,  tierShift: 0,  xp: 1.0, desc: '預設節奏' },
     hard:    { id: 'hard',    name: '挑戰', hearts: 3, time: 0.75, tierShift: 1,  xp: 1.3, desc: '時間縮短、多考拼得出來' },
     extreme: { id: 'extreme', name: '地獄', hearts: 1, time: 0.55, tierShift: 1,  xp: 1.6, desc: '一顆心、時間很緊、XP 加成最高' },
+    /* 隱藏難度（要解鎖才看得到）。tierShift 2 的意思是「連剛學的新字都直接考最難的題型」——
+       地獄只是把時間壓短，究極是連題型都不再放水。 */
+    ultra:   { id: 'ultra',   name: '究極', hearts: 1, time: 0.45, tierShift: 2,  xp: 2.5, secret: true, desc: '隱藏難度：一顆心、時間再砍一半、新字也直接考拼字與詞形變化' },
   };
   const DIFF_ORDER = ['easy', 'normal', 'hard', 'extreme'];
+  const SECRET_DIFFS = ['ultra'];
+  /** 難度選單：隱藏難度解鎖之後才會排在最後面。 */
+  function diffList() { return secretDiff() ? DIFF_ORDER.concat(SECRET_DIFFS) : DIFF_ORDER.slice(); }
+  /** 究極模式開著＝強制究極，其他難度按不動（要換就先關掉究極）。 */
+  function diffForced() { return secretDiff(); }
+  /** 難度的「硬度排名」：隱藏難度一律排在公開的四檔之上。 */
+  function diffRank(id) {
+    const k = DIFF_ORDER.indexOf(id);
+    return k >= 0 ? k : (DIFFICULTY[id] ? DIFF_ORDER.length : 0);
+  }
+  function secretDiff() { return !!load().profile.settings.secretDiff; }
+  /* 究極不是「多一個選項」，是一個模式：打開就強制究極，別的難度全部按不動。
+     所以打開時要記住原本玩的是哪一檔（diffBefore），關掉才回得去 ——
+     否則會變成「玩過一次究極，就再也回不到自己原本的節奏」。 */
+  function setSecretDiff(on) {
+    const c = load().profile.settings, was = !!c.secretDiff;
+    c.secretDiff = !!on;
+    if (c.secretDiff && !was) {
+      c.diffBefore = c.difficulty;
+      c.difficulty = 'ultra';
+    } else if (!c.secretDiff && was) {
+      const back = c.diffBefore;
+      c.difficulty = (DIFFICULTY[back] && !DIFFICULTY[back].secret) ? back : 'normal';
+      delete c.diffBefore;
+    }
+    save(true);
+    return c.secretDiff;
+  }
+
+  /* 作弊開關。純好玩用的，所以只影響「這一關會不會死／有沒有倒數／看不看得到答案」，
+     不去動計分與排程 —— 答錯還是答錯，一樣會排進複習、一樣進家長回報。
+     用過作弊的關卡會在紀錄裡留下 cheat 標記，成績單才不會說謊。 */
+  const CHEAT_KEYS = ['god', 'noTimer', 'xray'];
+  const CHEAT_NAMES = { god: '無敵（不會扣血）', noTimer: '時間暫停（沒有倒數）', xray: '透視（直接顯示答案）' };
+  function cheats() {
+    const c = load().profile.settings;
+    c.cheats = Object.assign({ god: false, noTimer: false, xray: false }, c.cheats);
+    return c.cheats;
+  }
+  function cheat(k) { return !!cheats()[k]; }
+  function setCheat(k, on) {
+    if (!CHEAT_KEYS.includes(k)) return cheats();
+    cheats()[k] = !!on;
+    save(true);
+    return cheats();
+  }
+  function cheating() { return CHEAT_KEYS.some(k => cheats()[k]); }
   function offKinds() { const o = load().profile.settings.offKinds; return Array.isArray(o) ? o : []; }
   function kindOn(k) { return !offKinds().includes(k); }
   /** 切換題型開關；不允許把題型全部關光。 */
@@ -99,6 +154,7 @@
   function diff() { return DIFFICULTY[load().profile.settings.difficulty] || DIFFICULTY.normal; }
   function setDifficulty(id) {
     if (!DIFFICULTY[id]) return diff();
+    if (diffForced() && id !== 'ultra') return diff();      // 究極模式強制中：換不了難度
     load().profile.settings.difficulty = id;
     save(true);
     return diff();
@@ -1479,7 +1535,8 @@
   /** 依最近表現建議難度：太順就往上推，撐不住就往下調。 */
   function recommendDifficulty() {
     const acc = recentAccuracy(3);
-    const cur = DIFF_ORDER.indexOf(load().profile.settings.difficulty);
+    // 用究極難度的人，建議值就當作「地獄」——建議永遠只在看得到的四檔裡挑
+    const cur = Math.min(diffRank(load().profile.settings.difficulty), DIFF_ORDER.length - 1);
     if (acc == null) return 'normal';
     if (acc >= 0.9) return DIFF_ORDER[Math.min(DIFF_ORDER.length - 1, cur + 1)];
     if (acc < 0.65) return DIFF_ORDER[Math.max(0, cur - 1)];
@@ -1488,9 +1545,7 @@
 
   /** 在「建議難度或更難」的設定下完成關卡 → 拿得到適配加成。 */
   function difficultyFits() {
-    const rec = DIFF_ORDER.indexOf(recommendDifficulty());
-    const cur = DIFF_ORDER.indexOf(load().profile.settings.difficulty);
-    return cur >= rec;
+    return diffRank(load().profile.settings.difficulty) >= diffRank(recommendDifficulty());
   }
 
   // ---------- 任務系統（每日 / 每週 / 每月）----------
@@ -1856,6 +1911,8 @@
     BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
     summary, history, reset, resetStage,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
+    SECRET_DIFFS, diffList, diffRank, diffForced, secretDiff, setSecretDiff,
+    CHEAT_KEYS, CHEAT_NAMES, cheats, cheat, setCheat, cheating,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
     KEY_ACTS, KEY_DEFAULTS, keys, keyOf, setKey, resetKeys,
     goalCfg, setGoal, clearGoal, goalStat,

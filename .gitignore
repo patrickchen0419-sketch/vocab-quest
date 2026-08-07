@@ -6,6 +6,10 @@ progress/*.json
 progress/*.html
 progress/*.csv
 
+# 開機自動啟動網站伺服器的腳本：裡面是這台電腦的絕對路徑，換一台就不對了
+start-english-server.cmd
+start-english-hidden.vbs
+
 # 備份與暫存
 *-backup-*.json
 .DS_Store

@@ -152,7 +152,7 @@
   function overlay(html, onClose) {
     const o = document.createElement('div');
     o.className = 'overlay';
-    o.innerHTML = `<div class="box card">${html}</div>`;
+    o.innerHTML = adminText(`<div class="box card">${html}</div>`);
     o.addEventListener('click', e => {
       const act = e.target.closest('[data-close]');
       if (act) { o.remove(); if (onClose) onClose(act.dataset.close); }
@@ -200,11 +200,17 @@
      箱子開完那顆鈕被換掉之後整個畫面沒有任何按鈕 —— 直接卡死。
      這個保險絲會在偵測到沒有任何可操作元素時補上「回首頁」。 */
   const WAYS_OUT = '[data-go],[data-act],[data-close],[data-openchest],[data-maplv],[data-mapletter],[data-startstage],[data-craft],[data-buy],[data-equip],[data-opt],[data-tile],[data-swpick],[data-swopt],[data-goalpreset],input,textarea';
+  /* 管理員面板（src/admin.js，隱藏功能）掛在這裡：
+     Admin.text() 套用「介面文字替換」，afterRender() 補回右下角的 🛠 浮動鈕
+     —— 因為這一行會把整個 body 換掉，浮動鈕每次都會被洗掉。
+     沒有載入 admin.js 時整段就當作不存在。 */
+  const adminText = html => (window.Admin ? window.Admin.text(html) : html);
   function render(html, isHome) {
     atHome = !!isHome;
     if (isHome) backStack = [];
-    document.body.innerHTML = topbar() + `<div class="wrap">${html}</div>`;
+    document.body.innerHTML = adminText(topbar() + `<div class="wrap">${html}</div>`);
     if (!isHome) ensureWayOut();
+    if (window.Admin) window.Admin.afterRender();
   }
   function ensureWayOut() {
     const wrap = document.querySelector('.wrap');
@@ -218,11 +224,14 @@
   // ---------------- 首頁 ----------------
   /** 難度選擇鈕；建議難度會標出來，選到建議或更高才有 XP 適配加成。 */
   function diffPills() {
-    const cur = S.settings.difficulty, rec = S.recommendDifficulty();
-    return S.DIFF_ORDER.map(id => {
+    const cur = S.settings.difficulty, rec = S.recommendDifficulty(), forced = S.diffForced();
+    const pills = S.diffList().map(id => {
       const d = S.DIFFICULTY[id];
-      return `<button class="pill ${cur === id ? 'on' : ''}" data-diff="${id}" title="${esc(d.desc)}">${esc(d.name)}${id === rec ? ' ⭐' : ''}</button>`;
+      const off = forced && !d.secret;        // 究極模式強制中：其他四檔留在畫面上但按不動
+      return `<button class="pill ${cur === id ? 'on' : ''}${d.secret ? ' secret' : ''}" data-diff="${id}"${off ? ' disabled' : ''}
+        title="${esc(off ? '究極模式強制中 —— 要換難度請先關掉究極（再打一次 EXTRA）' : d.desc)}">${d.secret ? '☠ ' : ''}${esc(d.name)}${id === rec && !forced ? ' ⭐' : ''}</button>`;
     }).join('');
+    return pills + (forced ? '<span class="tiny" style="align-self:center;color:var(--red)">☠ 究極模式強制中（再打一次 EXTRA 解除）</span>' : '');
   }
 
   /** 任務標籤的顏色類別（每種任務一個顏色，一眼看得出今天有哪幾種玩法）。 */
@@ -492,6 +501,9 @@
     };
     if (!run.qs.length) { toast('這一關沒有題目，先做別的吧'); return home(); }
     // 每一關都記一筆：開始時間、用了多少時間、結果。重來會另外記一筆。
+    /* 作弊不留任何紀錄。理由不是「懶得記」，是記了也沒用：
+       作弊沒背起來的字照樣會到期、照樣被抓回來考，間隔複習本來就會把帳算清楚。
+       頂端那個「🛠 作弊中」的牌子是當下的狀態提示，不是紀錄。 */
     run.runId = S.startRun({
       title: cfg.title,
       lv: cfg.map ? cfg.map.lv : null,
@@ -574,7 +586,10 @@
 
   function hearts() {
     if (!run.maxHearts) return '';
+    if (S.cheat('god')) return '<span class="hearts god" title="不會扣血">♥∞</span>';
     const alive = Math.max(0, Math.min(run.hearts, run.maxHearts));
+    // 究極模式只有一顆心，畫成一朵還在燒的火 —— 熄了就是結束
+    if (S.secretDiff()) return `<span class="hearts fire" title="究極：一顆心">${alive ? '🔥' : '🕯'}</span>`;
     return `<span class="hearts">${'♥'.repeat(alive)}<span class="off">${'♥'.repeat(run.maxHearts - alive)}</span></span>`;
   }
 
@@ -588,7 +603,7 @@
        等於「還沒看到題目就被算答錯」——使用者的體感就是「我明明選了正確答案卻給我錯」。 */
     run.drawnAt = Date.now();
     const p = q.prompt;
-    const useTimer = S.settings.timer && limitOf(q) > 0;
+    const useTimer = S.settings.timer && limitOf(q) > 0 && !S.cheat('noTimer');
     let body = '';
 
     const speakBtn = p.speak ? `<button class="speak" data-say="${esc(p.speak)}" title="播放發音">🔊</button>` : '';
@@ -665,8 +680,13 @@
         <textarea class="txt" id="ans" placeholder="寫出改正後的整句"></textarea>`;
     }
 
+    /* 透視（作弊選單）：直接把正解標出來。選擇題標在選項上，其他題型在題目下面補一行 ——
+       自由造句沒有標準答案，所以那一種就什麼都不顯示。 */
+    const xray = S.cheat('xray');
     const optsHtml = q.opts ? `<div class="opts" id="opts">${q.opts.map((o, k) =>
-      `<button class="opt" data-opt="${k}"><span class="k">${'ABCD'[k]}</span><span>${esc(o)}</span></button>`).join('')}</div>` : '';
+      `<button class="opt${xray && k === q.a ? ' xray' : ''}" data-opt="${k}"><span class="k">${'ABCD'[k]}</span><span>${esc(o)}</span></button>`).join('')}</div>` : '';
+    const xrayAns = xray && !q.opts && !q.noGrade ? (q.answer || (q.accept && q.accept[0]) || '') : '';
+    const xrayHtml = xrayAns ? `<div class="xray">👁 正解：${esc(xrayAns)}</div>` : '';
     const submitHtml = q.opts ? '' :
       `<div class="btnrow" style="margin-top:14px;justify-content:center">
          <button class="btn primary" data-act="submit">${p.type === 'free' ? '寫好了，下一題' : '送出'} ${kbd('submit')}</button>
@@ -683,9 +703,10 @@
         <div class="progressline"><i style="width:${run.idx / run.qs.length * 100}%"></i></div>
         <span class="tiny">${run.idx + 1}/${run.qs.length}</span>
         ${useTimer ? '<span class="timer" id="timer"></span>' : ''}
+        ${useTimer && S.secretDiff() ? '<div class="fuse" id="fuse"><i></i></div>' : ''}
         ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty} ${kbd('fifty')}</button>` : ''}
       </div>
-      <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${submitHtml}</div>
+      <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${xrayHtml}${submitHtml}</div>
       <div id="fb"></div>
       ${keyBar(q.opts
       ? [['next', '下一題'], ['speak', '發音'], ['pause', '暫停']]
@@ -726,7 +747,14 @@
     run.left = resumeFrom == null ? total : resumeFrom;
     const warnAt = Math.max(5, Math.round(total * 0.25));
     const el = $('#timer');
+    // 究極模式的引信：剩下的時間就是還沒燒到的那一截
+    const fuse = $('#fuse');
     const tick = () => {
+      if (fuse) {
+        fuse.className = 'fuse' + (run.left <= warnAt ? ' warn' : '');
+        const bar = fuse.firstChild || fuse.querySelector('i');
+        if (bar && bar.style) bar.style.width = Math.max(0, Math.min(100, run.left / total * 100)) + '%';
+      }
       if (!el) return;
       el.textContent = run.left + 's';
       el.className = 'timer' + (run.left <= warnAt ? ' warn' : '');
@@ -885,7 +913,7 @@
       sfx.ok();
     } else if (ok === false) {
       run.combo = 0;
-      if (run.maxHearts) run.hearts--;
+      if (run.maxHearts && !S.cheat('god')) run.hearts--;   // 無敵：照樣算錯、照樣進複習，只是不扣血
       sfx.no();
     } else {
       gained = Math.round(8 * S.diff().xp);   // 自由造句給參與分
@@ -894,7 +922,7 @@
     Object.assign(run.answers[run.answers.length - 1], { gained, speed, comboBonus, milestone, ms });
 
     // 血量歸零：立刻標記死亡，這樣就算使用者搶著按「下一題」也不會溜過去
-    if (ok === false && run.maxHearts && run.hearts <= 0) {
+    if (ok === false && run.maxHearts && !S.cheat('god') && run.hearts <= 0) {
       run.hearts = 0;
       run.dead = true;
     }
@@ -2078,6 +2106,18 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     };
     ['--ac', '--ac2', '--bg', '--bg2', '--card', '--card2', '--line'].forEach(k => root.style.removeProperty(k));
     if (themes[t]) for (const k in themes[t]) root.style.setProperty(k, themes[t][k]);
+    applyUltra();
+  }
+
+  /* 究極模式的外觀全部掛在 <html data-ultra> 上（樣式表裡那一大段「燒起來」）。
+     放在 documentElement 而不是 body：render() 會整個換掉 body 的內容，
+     但屬性在 <html> 上，重畫幾次都洗不掉。
+     商店主題是用 inline style 設變數，究極用的是樣式表 —— 究極開著時蓋過主題，關掉就自己還原。 */
+  function applyUltra() {
+    const root = document.documentElement;
+    if (!root || !root.setAttribute) return;
+    if (S.secretDiff()) root.setAttribute('data-ultra', '1');
+    else if (root.removeAttribute) root.removeAttribute('data-ultra');
   }
 
   // ---------------- 商店 ----------------
@@ -3330,6 +3370,10 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (where === 'settings') return settings();
     home();
   }
+
+  /* 給 src/admin.js（管理員面板）用的接口：它是獨立檔案，進不到這個 IIFE 裡面。
+     只開放「跳畫面」與「重畫」這幾件事，其餘一律照原本的流程走。 */
+  window.__app = { nav, home, render, overlay, toast, applyTheme, pauseStage, beep };
 
   window.__run = () => run;          // 測試接縫：讓 test-ui.js 能檢查目前關卡狀態
   window.__meme = (key, sub) => memeLine(key, sub);   // 測試接縫：驗證台詞不會連續重複

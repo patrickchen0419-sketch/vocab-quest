@@ -74,6 +74,10 @@ class El {
      去按覆蓋層（暫停／GAME OVER／選寶箱）的按鈕。少了它，鍵盤操作等於測不到。 */
   click() { fire('click', this); }
   closest(sel) { let n = this; while (n) { if (n instanceof El && matches(n, sel)) return n; n = n.parent; } return null; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  hasAttribute(k) { return k in this.attrs; }
   querySelector(sel) { return query(this, sel)[0] || null; }
   querySelectorAll(sel) { return query(this, sel); }
 }
@@ -164,6 +168,13 @@ Object.defineProperty(doc.body, 'innerHTML', {
   set(v) { doc.activeElement = null; _setBodyHTML.call(this, v); },
 });
 Object.defineProperty(doc.body, 'ownerDocument', { value: doc });
+/* <html>：商店主題用它的 inline style 設 CSS 變數，究極模式用它的 data-ultra 屬性。
+   少了這個節點，那兩條路在測試裡都會被 app.js 的防呆直接略過（等於沒測到）。 */
+doc.documentElement = new El('html');
+doc.documentElement.style = {
+  setProperty(k, v) { this[k] = v; },
+  removeProperty(k) { delete this[k]; },
+};
 
 // ================= 全域環境 =================
 const ls = {};
@@ -194,7 +205,7 @@ const downloads = [];
 global.__downloads = downloads;
 
 for (const f of ['data/words.js', 'data/grammar.js', 'data/sentences.js', 'data/memes.js',
-  'src/store.js', 'src/quiz.js', 'src/app.js']) {
+  'src/store.js', 'src/quiz.js', 'src/app.js', 'src/admin.js']) {
   new Function(fs.readFileSync(path.join(root, f), 'utf8')).call(global);
 }
 const S = window.Store, Q = window.Quiz, V = window.VOCAB;
@@ -1966,6 +1977,339 @@ t('素材包買下去直接進背包', () => {
   assert(!S.inventory().pack_dust, '素材包不該佔道具欄');
   click('[data-go="bag"]');
   assert(has('星塵') && has('×3'), '背包沒顯示素材：' + txt().slice(0, 300));
+});
+
+// ================= 管理員面板（隱藏功能）=================
+console.log('\n--- 管理員面板 ---');
+/** 輸入密技：↑↑↓↓←→←→BA。 */
+function konami() {
+  ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'B', 'A']
+    .forEach(k => press(k));
+}
+/** 面板裡的欄位填值（面板不是 app 畫的，所以不能用 walkStage 那一套）。 */
+function fill(sel, v) {
+  const el = doc.querySelector(sel);
+  assert(el, '找不到欄位：' + sel);
+  el.value = String(v);
+  return el;
+}
+
+t('沒輸密技時，畫面上完全看不到管理員的痕跡', () => {
+  goHome();
+  assert(!has('管理員'), '一開始就露出管理員字樣');
+  assert(!doc.querySelector('.adminfab'), '一開始就有浮動鈕');
+});
+
+t('上上下下左右左右 BA → 打開管理員面板', () => {
+  goHome();
+  konami();
+  assert(doc.querySelector('.adminwrap'), '密技沒有打開面板');
+  assert(has('🛠 管理員面板'), '面板標題不對：' + txt().slice(-300));
+  assert(doc.querySelector('[data-atab="words"]'), '沒有分頁');
+});
+
+t('半套密技不會開（按錯就要重來）', () => {
+  click('[data-a="close"]');
+  ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowLeft'].forEach(k => press(k));
+  assert(!doc.querySelector('.adminwrap'), '按錯順序也開了面板');
+  konami();
+  assert(doc.querySelector('.adminwrap'), '重來一次應該要開得起來');
+});
+
+t('改 XP／金幣會立刻寫進存檔，頂端列同步更新', () => {
+  fill('[data-f="xp"]', 4321);
+  fill('[data-f="coins"]', 777);
+  click('[data-a="savePlayer"]');
+  assert(S.profile.xp === 4321, 'XP 沒寫進去：' + S.profile.xp);
+  assert(S.coins() === 777, '金幣沒寫進去：' + S.coins());
+  assert(has('777'), '頂端列沒跟著更新');
+  assert(doc.querySelector('.adminwrap'), '存完之後面板應該還開著');
+});
+
+t('直接跳等：預設把升等獎勵標記成已領，不會爆出一堆獎勵', () => {
+  fill('[data-f="level"]', 30);
+  click('[data-a="setLevel"]');
+  assert(S.stats().level === 30, '沒跳到 30 等：' + S.stats().level);
+  assert(S.profile.rewardedLevel === 30, '沒標記已領：' + S.profile.rewardedLevel);
+  assert(S.claimLevelUps().length === 0, '還是噴出了升等獎勵');
+});
+
+t('道具可以直接加減', () => {
+  click('[data-atab="items"]');
+  const before = S.inventory().heart || 0;
+  click('[data-aitem="heart:10"]');
+  assert((S.inventory().heart || 0) === before + 10, '護心符沒加到：' + S.inventory().heart);
+  click('[data-aitem="heart:-1"]');
+  assert((S.inventory().heart || 0) === before + 9, '減不掉');
+});
+
+t('闖關地圖的星星可以用點的循環改', () => {
+  click('[data-atab="map"]');
+  const cell = doc.querySelector('[data-astar="2:B"]');
+  assert(cell, '沒有 2:B 的格子');
+  const before = S.mapStat(2, 'B').stars;
+  fire('click', cell);
+  assert(S.mapStat(2, 'B').stars === (before + 1) % 4, '星數沒循環：' + S.mapStat(2, 'B').stars);
+  fire('click', doc.querySelector('[data-alv="clear:2"]'));
+  assert(S.mapStat(2, 'B').stars === 0, '整級清除沒生效');
+});
+
+t('單字可以搜尋並改掉中文解釋', () => {
+  click('[data-atab="words"]');
+  fill('[data-q]', 'abandon');
+  click('[data-a="search"]');
+  const i = V.findIndex(w => w.w === 'abandon');
+  assert(doc.querySelector(`[data-w="tr:${i}"]`), '搜不到 abandon');
+  fill(`[data-w="tr:${i}"]`, '（改過的解釋）');
+  click(`[data-asaveword="${i}"]`);
+  assert(V[i].tr === '（改過的解釋）', '字庫沒被改到：' + V[i].tr);
+  click('[data-a="clearWords"]');
+  assert(!Object.keys(window.Admin.load().words).length, '清不掉修改');
+});
+
+t('新增的單字要以英文字母開頭（地圖是照字首分關的）', () => {
+  fill('[data-nw="w"]', '123');
+  click('[data-a="addWord"]');
+  assert(!window.Admin.load().added.length, '數字開頭的字被加進去了');
+  fill('[data-nw="w"]', 'zzztest');
+  fill('[data-nw="lv"]', 6);
+  click('[data-a="addWord"]');
+  assert(window.Admin.load().added.length === 1, '合法的字沒加進去');
+  click('[data-a="clearWords"]');
+});
+
+t('介面文字替換：整個站的字都會換，刪掉規則就變回來', () => {
+  click('[data-atab="ui"]');
+  fill('[data-nt="from"]', '闖關地圖');
+  fill('[data-nt="to"]', '勇者大地圖');
+  click('[data-a="addText"]');
+  assert(has('勇者大地圖'), '文字沒被換掉');
+  assert(!has('>闖關地圖<'), '原文還在');
+  click('[data-adeltext="0"]');
+  assert(!has('勇者大地圖'), '刪掉規則後沒有變回來');
+  assert(has('闖關地圖'), '原文沒回來');
+});
+
+t('文字替換只動看得見的字，不會改到 class 或 data-*', () => {
+  fill('[data-nt="from"]', 'a');
+  fill('[data-nt="to"]', '★');
+  click('[data-a="addText"]');
+  assert(doc.querySelector('[data-maplv="1"]'), '把 data-* 屬性也換掉了，按鈕全壞');
+  assert(doc.querySelector('.card'), 'class 名稱被換掉了');
+  click('[data-atab="ui"]');
+  click('[data-adeltext="0"]');
+});
+
+t('關掉管理員模式之後浮動鈕就收起來，密技還能再開', () => {
+  konami();
+  assert(doc.querySelector('.adminfab'), '解鎖狀態下沒有浮動鈕');
+  click('[data-atab="data"]');
+  click('[data-a="lock"]');
+  assert(!doc.querySelector('.adminwrap'), '面板沒關');
+  assert(!doc.querySelector('.adminfab'), '浮動鈕沒收起來');
+  goHome();
+  assert(!doc.querySelector('.adminfab'), '重畫之後浮動鈕又跑出來了');
+  konami();
+  assert(doc.querySelector('.adminwrap'), '鎖回去之後密技就失效了');
+  click('[data-atab="data"]');
+  click('[data-a="lock"]');
+});
+
+// ================= 隱藏難度與作弊選單 =================
+console.log('\n--- 隱藏難度與作弊 ---');
+/** 打一串英文密技（一個字母一個 keydown）。密技只認大寫，所以一律轉成大寫送。 */
+const type = s => s.toUpperCase().split('').forEach(ch => press(ch));
+/** 小寫版本：用來驗證「一定要大寫」這條規則。 */
+const typeLower = s => s.toLowerCase().split('').forEach(ch => press(ch));
+
+t('究極難度預設看不到，也不在難度清單裡', () => {
+  S.setSecretDiff(false);
+  goHome();
+  assert(!S.diffList().includes('ultra'), '沒解鎖卻列在難度清單裡');
+  assert(!doc.querySelector('[data-diff="ultra"]'), '首頁就看得到究極');
+  assert(!has('究極'), '首頁出現「究極」字樣');
+});
+
+t('打 EXTRA → 直接強制究極，不是多給一個選項', () => {
+  S.setDifficulty('normal');
+  goHome();
+  type('extra');
+  assert(S.secretDiff(), 'EXTRA 沒有打開');
+  assert(S.settings.difficulty === 'ultra', '沒有強制切到究極：' + S.settings.difficulty);
+  assert(S.diff().hearts === 1 && S.diff().tierShift === 2, '究極的參數不對');
+  goHome();
+  const pill = doc.querySelector('[data-diff="ultra"]');
+  assert(pill && pill.classList.contains('secret'), '難度列沒有究極：' + txt().slice(0, 200));
+  assert(has('究極模式強制中'), '首頁沒說明強制中');
+});
+
+t('強制中：其他難度按不動，程式層也擋掉', () => {
+  goHome();
+  assert(doc.querySelector('[data-diff="easy"]').disabled, '輕鬆沒有被鎖住');
+  assert(!doc.querySelector('[data-diff="ultra"]').disabled, '究極自己不該被鎖');
+  click('[data-diff="easy"]');                     // 就算真的點下去也不能生效
+  S.setDifficulty('normal');
+  assert(S.settings.difficulty === 'ultra', '被換掉了：' + S.settings.difficulty);
+});
+
+t('關掉究極模式會回到原本玩的難度，不是隨便丟一檔', () => {
+  S.setSecretDiff(false);
+  S.setDifficulty('hard');                          // 原本玩挑戰
+  type('extra');
+  assert(S.settings.difficulty === 'ultra', '沒切到究極');
+  type('extra');
+  assert(!S.secretDiff(), 'EXTRA 關不掉');
+  assert(S.settings.difficulty === 'hard', '沒回到挑戰：' + S.settings.difficulty);
+  type('extra');                                    // 開回來給後面的測試用
+});
+
+t('究極算最硬的一檔，拿得到難度適配加成', () => {
+  assert(S.diffRank('ultra') > S.diffRank('extreme'), '究極排名沒有高於地獄');
+  assert(S.difficultyFits(), '用究極難度卻不算適配');
+});
+
+t('小寫打不開：密技一定要大寫', () => {
+  S.setSecretDiff(false);
+  S.setCheat('god', false);
+  goHome();
+  typeLower('extra');
+  assert(!S.secretDiff(), '小寫 extra 也開得起來');
+  typeLower('iddqd');
+  assert(!S.cheat('god'), '小寫 iddqd 也開得起來');
+  type('extra');
+  assert(S.secretDiff(), '大寫 EXTRA 反而開不起來');
+});
+
+t('進究極模式會有進場演出，整個網站掛上燒起來的外觀', () => {
+  assert(has('究 極 模 式'), '沒有進場演出：' + txt().slice(-400));
+  assert(has('ultraburst') && has('flame'), '演出沒有火焰樣式');
+  assert(doc.documentElement && doc.documentElement.attrs['data-ultra'], '<html> 沒有掛上 data-ultra');
+  const box = doc.querySelector('[data-close="ok"]');
+  if (box) fire('click', box);
+  goHome();
+  assert(doc.documentElement.attrs['data-ultra'], '重畫版面之後外觀被洗掉了');
+});
+
+t('關掉究極模式，燒起來的外觀要跟著消失', () => {
+  type('extra');
+  assert(!S.secretDiff(), '關不掉');
+  assert(!doc.documentElement.attrs['data-ultra'], 'data-ultra 沒有拿掉');
+  type('extra');                                   // 開回來給後面的測試用
+});
+
+t('究極模式的關卡：血條是火、計時器多一條引信', () => {
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));   // 時間暫停開著就不會有計時器
+  goHome();
+  click('[data-maplv="5"]');
+  click('[data-mapletter="5:A"]');
+  click('[data-startstage="5:A:5"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  assert(has('🔥'), '血條不是火：' + txt().slice(0, 300));
+  assert(doc.querySelector('#fuse'), '沒有引信');
+  S.setSecretDiff(false);
+});
+
+t('在輸入框裡打 EXTRA 不會誤觸密技', () => {
+  S.setSecretDiff(false);
+  const box = doc.createElement('textarea');
+  doc.body.appendChild(box);
+  box.focus();
+  type('extra');
+  assert(!S.secretDiff(), '打字時被當成密技');
+  doc.activeElement = null;
+  box.remove();
+});
+
+t('打 IDDQD → 切換無敵，而且畫面上不顯示任何痕跡', () => {
+  S.setCheat('god', false);
+  goHome();
+  type('iddqd');
+  assert(S.cheat('god'), 'IDDQD 沒開無敵');
+  assert(S.cheating(), '沒被算成作弊中');
+  goHome();
+  // 外掛要安靜：首頁不該冒出任何「作弊」字樣，開了沒有只有自己知道
+  assert(!has('作弊'), '畫面上出現了作弊字樣：' + txt().slice(0, 300));
+  type('iddqd');
+  assert(!S.cheat('god'), 'IDDQD 關不掉');
+});
+
+t('無敵：一顆心的難度下全部答錯也不會 GAME OVER', () => {
+  S.setDifficulty('extreme');          // 只有一顆心，正常玩第一題錯就結束
+  S.setCheat('god', true);
+  goHome();
+  click('[data-maplv="4"]');
+  click('[data-mapletter="4:D"]');
+  click('[data-startstage="4:D:5"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  assert(has('♥∞'), '血條沒變成無敵的樣子');
+  const r = walkStage({ correct: false });
+  assert(r.end !== 'dead', '無敵還是死了');
+  assert(!has('GAME OVER'), '出現 GAME OVER');
+  assert(has('未通關'), '沒走到未通關的結算：' + txt().slice(0, 200));
+});
+
+t('作弊完全不留紀錄：關卡紀錄、作答紀錄、成績單都不寫', () => {
+  assert(!S.runLog().some(r => r.cheat), '關卡紀錄留下了 cheat 欄位');
+  // 先關掉作弊，頂端那個「🛠 作弊中」的即時牌子才不會混進下面的斷言
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));
+  goHome();
+  click('[data-go="records"]');
+  click('[data-rtab="runs"]');
+  assert(!has('作弊'), '作答紀錄寫了作弊：' + txt().slice(0, 300));
+  goHome();
+  click('[data-go="report"]');
+  assert(!has('作弊'), '成績單寫了作弊：' + txt().slice(0, 300));
+});
+
+t('透視：選擇題把正解框出來，填空題直接寫出答案', () => {
+  S.setCheat('god', false);
+  S.setCheat('xray', true);
+  S.setDifficulty('normal');
+  goHome();
+  click('[data-maplv="4"]');
+  click('[data-mapletter="4:E"]');
+  click('[data-startstage="4:E:5"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  let sawOpt = 0, sawLine = 0, steps = 0;
+  while (steps++ < 12 && !has('★') && !has('☆') && !has('GAME OVER')) {
+    const q = curQ();
+    if (!q) break;
+    if (q.opts) {
+      const marked = doc.querySelectorAll('.opt.xray');
+      assert(marked.length === 1, '選擇題沒有剛好標一個正解：' + marked.length);
+      assert(marked[0] === doc.querySelectorAll('.opt')[q.a], '標到的不是正解');
+      sawOpt++;
+    } else if (!q.noGrade && (q.answer || (q.accept && q.accept[0]))) {
+      assert(doc.querySelector('.xray'), '填空題沒有寫出正解：' + txt().slice(0, 200));
+      sawLine++;
+    }
+    const step = walkStage({ maxSteps: 1 });
+    if (step.end !== 'timeout') break;
+  }
+  assert(sawOpt + sawLine > 0, '整關都沒驗到透視');
+  S.setCheat('xray', false);
+});
+
+t('作弊選單：面板裡三個開關都能切，也能解鎖究極', () => {
+  S.setSecretDiff(false);
+  goHome();
+  konami();
+  click('[data-atab="cheat"]');
+  assert(has('隱藏難度') && has('外掛'), '作弊分頁內容不對');
+  click('[data-acheat="noTimer"]');
+  assert(S.cheat('noTimer'), '面板開不了時間暫停');
+  click('[data-acheat="noTimer"]');
+  assert(!S.cheat('noTimer'), '面板關不掉時間暫停');
+  S.setDifficulty('normal');
+  click('[data-a="secretDiff"]');
+  assert(S.secretDiff() && S.settings.difficulty === 'ultra', '面板開不了究極模式');
+  click('[data-a="secretDiff"]');
+  assert(!S.secretDiff() && S.settings.difficulty === 'normal', '面板關不掉、或沒回到原難度');
+  click('[data-atab="data"]');
+  click('[data-a="lock"]');
 });
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
