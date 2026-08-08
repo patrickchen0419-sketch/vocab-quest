@@ -2058,6 +2058,38 @@ t('闖關地圖的星星可以用點的循環改', () => {
   assert(S.mapStat(2, 'B').stars === 0, '整級清除沒生效');
 });
 
+t('管理員面板可以一鍵修掉誤觸的答錯', () => {
+  S.reset();
+  const i = 100;
+  S.answer(i, false, 1);
+  S.logAnswer({ i, t: 'e2c', ok: false, attempt: 1, ms: 700, given: 'x', right: 'y' });
+  goHome();
+  konami();
+  click('[data-atab="words"]');
+  assert(has('按錯了'), '沒有誤觸修正區');
+  assert(doc.querySelector(`[data-afix="${i}"]`), '答錯的字沒有出現在清單裡');
+  click(`[data-afix="${i}"]`);
+  assert(S.rec(i).wr === 0 && S.rec(i).b === 1, '沒有真的修掉：' + JSON.stringify(S.rec(i)));
+  assert(!doc.querySelector(`[data-afix="${i}"]`), '修完之後那一筆還留在清單上');
+});
+
+t('單字的學習數值可以直接改', () => {
+  fill('[data-q]', 'ability');
+  click('[data-a="search"]');
+  const i = V.findIndex(w => w.w === 'ability');
+  S.answer(i, true, 1);                      // 先讓它有紀錄
+  click('[data-a="search"]');
+  fill(`[data-r="wr:${i}"]`, 3);
+  fill(`[data-r="fs:${i}"]`, 5);
+  fill(`[data-r="fr:${i}"]`, 9);             // 故意填超過首次作答
+  click(`[data-asaverec="${i}"]`);
+  const r = S.rec(i);
+  assert(r.wr === 3, '答錯次數沒存進去：' + r.wr);
+  assert(r.fr === 5, '首次答對沒被壓回上限（正確率會超過 100%）：' + r.fr);
+  click(`[data-aforget="${i}"]`);
+  assert(!S.load().words[i], '「整個忘掉」沒生效');
+});
+
 t('單字可以搜尋並改掉中文解釋', () => {
   click('[data-atab="words"]');
   fill('[data-q]', 'abandon');

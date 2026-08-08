@@ -208,8 +208,15 @@
       correct, shuffle(wrong).slice(0, 3), `${stem} → ${FORM_LABEL[key]}：${correct}`);
   }
 
+  /* 易混淆字要「拼起來像，但意思分得開」。
+     cf 裡有一大票同字根的家族（absent／absence、administration／administrator），
+     這題是「給中文選英文」—— 意思撞在一起的話兩個選項都對得上，
+     使用者的體感就是「四個選項裡根本沒有答案」。詞性也救不了：
+     administration 與 administrator 都是名詞。
+     所以照一般干擾選項同一套規則（glossClash）濾掉；濾到不足 3 個就不出這題，
+     讓上層換一種題型 —— 寧可少一題，也不要出一題無法作答的。 */
   function q_confuse(w) {
-    const cf = (w.cf || []).map(j => V()[j]).filter(Boolean);
+    const cf = (w.cf || []).map(j => V()[j]).filter(x => x && x.tr && !glossClash(w.tr, x.tr));
     if (cf.length < 3) return null;
     const chosen = shuffle(cf).slice(0, 3);
     const why = [w].concat(chosen).map(x => `${base(x.w)} = ${x.tr}`).join('　｜　');

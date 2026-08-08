@@ -479,8 +479,37 @@
       <div class="arow"><label>中文</label><input class="ain" data-w="tr:${w.i}" value="${esc(w.tr || '')}"></div>
       <div class="arow"><label>音標</label><input class="ain" data-w="ph:${w.i}" value="${esc(w.ph || '')}"></div>
       <div class="btnrow"><button class="btn sm primary" data-asaveword="${w.i}">儲存這個字</button></div>
+      ${(() => {
+        const r = (S().load().words || {})[w.i];
+        if (!r) return '<p class="anote" style="margin:6px 0 0">還沒學過這個字，沒有作答數值可以改。</p>';
+        const f = (k, name, v) => `<div class="arow" style="margin:3px 0"><label style="min-width:88px">${name}</label>
+          <input class="ain" type="number" data-r="${k}:${w.i}" value="${v}"></div>`;
+        return `<p class="anote" style="margin:8px 0 2px">學習數值（改完按下面的儲存）</p>
+          ${f('b', '熟練度 box', r.b || 0)}
+          ${f('r', '答對次數', r.r || 0)}
+          ${f('wr', '答錯次數', r.wr || 0)}
+          ${f('fr', '首次答對', r.fr || 0)}
+          ${f('fs', '首次作答', r.fs || 0)}
+          <div class="arow" style="margin:3px 0"><label style="min-width:88px">下次複習</label>
+            <input class="ain" data-r="due:${w.i}" value="${esc(r.due || '')}" placeholder="2026-08-20"></div>
+          <div class="btnrow"><button class="btn sm" data-asaverec="${w.i}">儲存學習數值</button>
+            <button class="btn sm ghost adanger" data-aforget="${w.i}">整個忘掉（變回沒學過）</button></div>`;
+      })()}
     </div>`;
-    return `<h3>找字來改</h3>
+    const s = S(), wrong = s.recentWrong(12);
+    return `<h3>😖 按錯了？把最近答錯的改回來</h3>
+      <p class="anote">手滑點錯、或上一題的第二下點擊落在新題目上 —— 那個字會被判錯、掉回 box 0、
+        明天還會被抓出來考。按一下就把那筆改成答對：<b>作答紀錄、正確率、複習排程三個地方一起修</b>，
+        不會只改一半。</p>
+      ${wrong.length ? wrong.map(x => {
+        const ww = (window.VOCAB || [])[x.i] || {};
+        return `<div class="arow" style="margin:4px 0">
+          <b style="flex:1">${esc(ww.w || '#' + x.i)}<span class="tiny" style="color:var(--tx3)">　${esc(ww.tr || '')}</span></b>
+          <span class="tiny">${esc(String(x.date || '').slice(5))}${x.timeout ? ' ・逾時' : ''}${x.given ? ' ・答了「' + esc(String(x.given).slice(0, 12)) + '」' : ''}</span>
+          <button class="btn sm" data-afix="${x.i}">改成答對</button></div>`;
+      }).join('') : '<p class="anote">最近沒有答錯的紀錄。</p>'}
+
+      <h3 style="margin-top:18px">找字來改</h3>
       <div class="arow"><input class="ain" data-q value="${esc(wordQ)}" placeholder="輸入英文或中文">
         <button class="btn" data-a="search">搜尋</button></div>
       ${q && !hits.length ? '<p class="anote">找不到。</p>' : ''}
@@ -598,6 +627,25 @@
     const ch = t.closest('[data-achest]');
     if (ch) return bump('chest', ch.dataset.achest);
 
+    const fx = t.closest('[data-afix]');
+    if (fx) {
+      const i = +fx.dataset.afix;
+      const out = S().fixMisclick(i);
+      const ww = (window.VOCAB || [])[i] || {};
+      toast(out ? `「${ww.w}」已改成答對（box ${out.box}，${out.due} 再複習）` : '找不到這個字的答錯紀錄');
+      redrawApp();
+      return draw();
+    }
+    const sr = t.closest('[data-asaverec]');
+    if (sr) return saveRecord(+sr.dataset.asaverec);
+    const fg = t.closest('[data-aforget]');
+    if (fg) {
+      const i = +fg.dataset.aforget;
+      delete S().load().words[i];
+      S().save(true);
+      toast('已變回沒學過');
+      return draw();
+    }
     const sw = t.closest('[data-asaveword]');
     if (sw) return saveWord(+sw.dataset.asaveword);
     const rv = t.closest('[data-arevert]');
@@ -686,6 +734,23 @@
     save();
     Object.assign(w, patch);
     toast(`#${i} 已存（改了級別或字首要重新整理才會重排地圖）`);
+    draw();
+  }
+
+  /** 直接改一個字的作答數值。首次答對不能超過首次作答，否則正確率會算出超過 100%。 */
+  function saveRecord(i) {
+    const r = (S().load().words || {})[i];
+    if (!r) return toast('這個字還沒有紀錄');
+    r.b = Math.max(0, Math.min(6, num(`[data-r="b:${i}"]`)));
+    r.r = Math.max(0, num(`[data-r="r:${i}"]`));
+    r.wr = Math.max(0, num(`[data-r="wr:${i}"]`));
+    r.fs = Math.max(0, num(`[data-r="fs:${i}"]`));
+    r.fr = Math.max(0, Math.min(r.fs, num(`[data-r="fr:${i}"]`)));
+    r.s = r.r + r.wr;
+    const due = val(`[data-r="due:${i}"]`).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(due)) r.due = due;
+    S().save(true);
+    toast('學習數值已更新');
     draw();
   }
 

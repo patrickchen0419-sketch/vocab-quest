@@ -1729,6 +1729,83 @@ t('progress() 給出畫進度條需要的所有數字', () => {
   assert(pg.inLevel + (S.XP_PER_LEVEL - pg.inLevel) === S.XP_PER_LEVEL, '等級進度算錯');
 });
 
+console.log('\n--- 選項不能有第二個正確答案 ---');
+/* 這裡抓的是「四個選項裡有兩個都對」的題目。使用者的體感是「答案根本沒出現」，
+   因為他選了自己認為對的那個、卻被判錯。易混淆字最容易出這種包（absent／absence）。 */
+t('易混淆題的選項，意思不可以跟正解撞在一起', () => {
+  const clash = (a, b) => {
+    a = String(a || '').trim(); b = String(b || '').trim();
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const segs = s => s.split(/[；;，,]/).map(x => x.trim()).filter(Boolean);
+    const sb = segs(b);
+    if (segs(a).some(x => sb.includes(x))) return true;
+    return a.split(/[；;]/).some(s => s.trim().length >= 2 && b.includes(s.trim()));
+  };
+  let checked = 0, bad = [];
+  for (const w of V) {
+    const q = Q.forWord(w, null, 0);
+    if (!q || q.kind !== 'confuse') continue;
+    checked++;
+    const right = V.find(x => x.w === q.opts[q.a]);
+    q.opts.forEach((o, k) => {
+      if (k === q.a) return;
+      const other = V.find(x => x.w === o);
+      if (right && other && clash(right.tr, other.tr) && bad.length < 3) bad.push(`${right.w}(${right.tr}) ↔ ${other.w}(${other.tr})`);
+    });
+  }
+  assert(checked > 100, '抽到的易混淆題太少，測試沒有意義：' + checked);
+  assert(bad.length === 0, `有 ${bad.length} 題出現兩個都對的選項：\n    ` + bad.join('\n    '));
+});
+
+t('所有選擇題的正解都一定在選項裡', () => {
+  let n = 0;
+  for (const w of V.filter((_, k) => k % 7 === 0)) {
+    const q = Q.forWord(w, null, 0);
+    if (!q || !q.opts) continue;
+    n++;
+    assert(q.a >= 0 && q.a < q.opts.length, `${w.w} 的正解索引是 ${q.a}`);
+    assert(new Set(q.opts).size === q.opts.length, `${w.w} 有重複選項：${q.opts.join(' / ')}`);
+  }
+  assert(n > 300, '抽樣太少：' + n);
+});
+
+console.log('\n--- 誤觸修正 ---');
+t('把最近一次答錯改成答對：紀錄、統計、排程三個地方一起改', () => {
+  S.reset();
+  const i = 42;
+  S.answer(i, false, 1);
+  S.logAnswer({ i, t: 'e2c', ok: false, attempt: 1, ms: 800, given: 'x', right: 'y' });
+  const before = S.rec(i);
+  assert(before.b === 0 && before.wr === 1 && before.fr === 0, '前置狀態不對');
+  const out = S.fixMisclick(i);
+  assert(out, '沒有修正到');
+  const r = S.rec(i);
+  assert(r.wr === 0, '答錯次數沒扣掉：' + r.wr);
+  assert(r.r === 1, '答對次數沒加上：' + r.r);
+  assert(r.fr === 1, '首次答對沒補上：' + r.fr);
+  assert(r.b === 1, 'box 沒往上推：' + r.b);
+  assert(r.due > S.todayStr(), '下次複習日還在今天，明天又會被抓出來：' + r.due);
+  const log = S.answerLog({ only: 'wrong' }).rows.filter(x => x.i === i);
+  assert(log.length === 0, '作答紀錄裡還留著那筆答錯 —— 正確率會繼續被拉低');
+});
+
+t('沒有答錯紀錄時不會憑空生出一筆答對', () => {
+  S.reset();
+  assert(S.fixMisclick(99) === null, '無中生有了');
+  assert(!S.load().words[99], '產生了不該有的紀錄');
+});
+
+t('首次答對永遠不會超過首次作答（正確率不可能超過 100%）', () => {
+  S.reset();
+  const i = 7;
+  S.answer(i, false, 2);                       // 第 2 次作答答錯：fs 不動
+  S.logAnswer({ i, t: 'e2c', ok: false, attempt: 2, ms: 500, given: 'x', right: 'y' });
+  S.fixMisclick(i);
+  const r = S.rec(i);
+  assert(r.fr <= r.fs, `首次答對 ${r.fr} > 首次作答 ${r.fs}`);
+});
+
 console.log('\n--- 跨裝置同步 ---');
 t('同步碼：格式固定、每次都不一樣、不含看起來像的字', () => {
   const a = S.newSyncCode(), b = S.newSyncCode();

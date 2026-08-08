@@ -1887,6 +1887,48 @@
 
   function reset() { localStorage.removeItem(KEY); S = null; }
 
+  /* 誤觸修正：把某個字「最近一次答錯」整個當成沒發生過，改判成答對。
+
+     為什麼要有這個：手指滑到、或上一題的第二下點擊落在新題目上，
+     那個字會被判錯 → box 直接掉回 0、當天重練、首次正確率被拉低、還會被排進複習。
+     那不是「不會」，是「按錯」，讓它留在紀錄裡只會讓數字說謊、讓複習排程去追一個假的弱點。
+
+     三個地方要一起改，少改一個就會前後不一致：
+       1. 作答紀錄（days[].log）—— 成績單與正確率都是從這裡算的
+       2. 單字的統計（words[i] 的答對／答錯／首次正確）
+       3. 排程（box 與下次複習日）—— 照「答對」重算，才不會明天又被抓出來
+     只改最近一次，而且找不到就回 null（不會憑空生出一筆答對）。 */
+  function fixMisclick(i) {
+    const s = load();
+    const days = Object.keys(s.days).sort().reverse();
+    for (const t of days) {
+      const log = s.days[t].log || [];
+      for (let k = log.length - 1; k >= 0; k--) {
+        const row = log[k];
+        if (row.i !== i || row.ok !== false) continue;
+        row.ok = true;
+        row.fixed = true;                       // 標記這一筆是修正過的（避免重複修同一筆）
+        const r = rec(i);
+        r.wr = Math.max(0, (r.wr || 0) - 1);
+        r.r = (r.r || 0) + 1;
+        if (row.attempt === 1) r.fr = Math.min(r.fs || 0, (r.fr || 0) + 1);
+        // 照「答對」重新排程：box 往上推一級，下次複習日跟著走
+        r.b = Math.min(MAX_BOX, (r.b || 0) + 1);
+        r.due = addDays(todayStr(), BOX_DAYS[r.b] || 1);
+        r.lw = 0;
+        delete r.lwd;
+        save(true);
+        return { date: t, attempt: row.attempt, box: r.b, due: r.due };
+      }
+    }
+    return null;
+  }
+
+  /** 最近答錯的字（誤觸修正用的清單）。 */
+  function recentWrong(n) {
+    return answerLog({ only: 'wrong', limit: n || 12 }).rows.filter(x => x.cat === 'word' && x.i != null);
+  }
+
   // ---------- 跨裝置同步 ----------
   /* 同步碼＝密碼。去掉 0O1lI 這些看起來像的字，因為這組碼要在手機上手打。 */
   const SYNC_ALPHA = '23456789abcdefghjkmnpqrstuvwxyz';
@@ -2013,6 +2055,7 @@
     BADGES, BADGE_TIER, badgeProgress, BOX_DAYS, stats, checkBadges, noteCombo, notePerfect,
     summary, history, reset, resetStage,
     SYNC_RE, newSyncCode, syncCode, setSyncCode, syncAt, mergeRemote,
+    fixMisclick, recentWrong,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     SECRET_DIFFS, diffList, diffRank, diffForced, secretDiff, setSecretDiff,
     CHEAT_KEYS, CHEAT_NAMES, cheats, cheat, setCheat, cheating,
