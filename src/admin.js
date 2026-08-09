@@ -171,10 +171,17 @@
   const SEQS = [
     { code: CODE, name: '管理員面板', run: () => enter() },
     { code: 'IDDQD'.split(''), name: '無敵', run: () => toggleCheat('god') },
-    { code: 'EXTRA'.split(''), name: '究極難度', run: () => toggleSecret() },
+    { code: 'EXTRA'.split(''), name: '究極難度', run: () => toggleSecret('EXTRA'), plus: true },
+    /* 第二段階梯的入口。'EXTRA' 不是 'EXTREMELY' 的前綴（第 5 個字母一個是 A 一個是 E），
+       所以兩組密技不會互相誤觸，各自數各自的進度就好。 */
+    { code: 'EXTREMELY'.split(''), name: '灰燼難度', run: () => toggleSecret('EXTREMELY'), plus: true },
   ];
   const prog = SEQS.map(() => 0);
   let taps = 0, tapAt = 0, authed = false;
+  /* EXTRA 打完之後，接著的每一個「＋」都再往上一階（EXTRA++++++ ＝ 一路打到頂）。
+     中間插進任何別的鍵就算斷掉，要再打一次 EXTRA 才能繼續加 ——
+     不然「開著究極的時候隨手按到 +」就會偷偷升階，那是意外，不是選擇。 */
+  let plusChain = false;
 
   /** 正在輸入框打字時不吃密技 —— 不然拼字題打到「extra」就會被當成密技。 */
   function typingNow() {
@@ -194,11 +201,14 @@
     }
     if (typingNow()) return;
     const k = String((e && e.key) || '');
+    if (plusChain && k === '+') { ultraUp(); return; }      // EXTRA 之後的每個加號＝再上一階
+    plusChain = false;
     SEQS.forEach((s, n) => {
       // 完全比對：'B' 只認大寫 B，小寫 b 不算（方向鍵本來就是 'ArrowUp' 這種完整字串）
       if (k === s.code[prog[n]]) prog[n]++;
       else prog[n] = (k === s.code[0] ? 1 : 0);
-      if (prog[n] >= s.code.length) { prog[n] = 0; s.run(); }
+      // 加號鏈只在「這一次是打開」時接上；打 EXTRA 把究極關掉之後再按 + 不該又點著
+      if (prog[n] >= s.code.length) { prog[n] = 0; const on = s.run(); if (s.plus) plusChain = on !== false; }
     });
   }, true);
 
@@ -209,33 +219,86 @@
     redrawApp();
     if (panelEl) draw();
   }
-  function toggleSecret() {
-    const s = S(), on = !s.secretDiff();
-    s.setSecretDiff(on);
-    if (A().applyTheme) A().applyTheme();          // 立刻把「燒起來」的外觀套上去／撤掉
+  /* 切究極模式。每一段階梯有自己的入口密技：
+       打自己這一段（或更上面）的密技 → 關掉整個究極模式
+       打的是更上面那一段的密技      → 直接跳到那一段的第一階（不用從第 1 階一路加號上去）
+     回傳「現在是不是開著」，加號鏈要靠它決定接不接下去。 */
+  function toggleSecret(code) {
+    const s = S(), at = s.ultraEntry(code || 'EXTRA'), lv = s.ultraLevel();
+    if (lv >= at) {                                // 已經站在這一段或更上面 → 這一下是「關掉」
+      s.setUltra(0);
+      if (A().applyTheme) A().applyTheme();        // 立刻把外觀撤掉
+      redrawApp();
+      if (panelEl) draw();
+      toast(`餘燼熄滅 —— 難度回到「${(s.DIFFICULTY[s.settings.difficulty] || {}).name || ''}」`);
+      return false;
+    }
+    s.setUltra(at);
+    if (A().applyTheme) A().applyTheme();          // 立刻把「燒起來」的外觀套上去
     redrawApp();
     if (panelEl) draw();
-    if (on) ultraBurst();
-    else toast(`餘燼熄滅 —— 難度回到「${(s.DIFFICULTY[s.settings.difficulty] || {}).name || ''}」`);
+    ultraBurst();
+    return true;
   }
 
-  /** 進究極模式的演出：先點火，再把規矩攤開來講。 */
+  /** 面板上直接指定階數（0 ＝ 關掉）。跟打密技走同一條路，所以行為完全一樣。 */
+  function setUltraTo(n) {
+    const s = S(), was = s.ultraLevel();
+    const lv = s.setUltra(n);
+    if (A().applyTheme) A().applyTheme();
+    redrawApp();
+    if (panelEl) draw();
+    if (!lv) return toast('餘燼熄滅 —— 究極模式關掉了');
+    if (lv !== was) ultraBurst();
+    return lv;
+  }
+
+  /** 再上一階。已經站在最頂就只回一句話，不再演一次。 */
+  function ultraUp() {
+    const s = S(), was = s.ultraLevel();
+    const lv = s.ultraUp();
+    if (A().applyTheme) A().applyTheme();          // data-ultra 的值就是階數，換階要重套
+    redrawApp();
+    if (panelEl) draw();
+    if (lv === was) {
+      // 加號爬到這一段的頂就停 —— 要再上去得知道下一段的入口密技
+      const next = s.SECRET_DIFFS[lv] && s.DIFFICULTY[s.SECRET_DIFFS[lv]];
+      return toast(next
+        ? `☠ 這一段到頂了（${s.DIFFICULTY[s.ultraId(lv)].name}）—— 上面還有東西，但加號上不去`
+        : `☠ 已經是最頂階「${s.DIFFICULTY[s.ultraId(lv)].name}」`);
+    }
+    ultraBurst();
+    return lv;
+  }
+
+  /** 進究極（或再上一階）的演出：先點火，再把這一階的規矩攤開來講。 */
   function ultraBurst() {
-    const d = S().DIFFICULTY.ultra;
-    if (!A().overlay) return toast('☠ 究極模式 —— 開');
-    // 點火聲：低頻鋸齒往下沉，最後補一顆高音火花
+    const s = S(), lv = s.ultraLevel() || 1, d = s.DIFFICULTY[s.ultraId(lv)];
+    if (!A().overlay) return toast(`☠ ${d.name} —— 開`);
+    // 點火聲：低頻鋸齒往下沉，最後補一顆高音火花。階越高，火花越尖
     if (A().beep) {
       [[190, .5], [150, .55], [115, .6]].forEach(([f, t], k) => setTimeout(() => A().beep(f, t, 'sawtooth', .05), k * 130));
-      setTimeout(() => A().beep(1400, .18, 'triangle', .04), 430);
+      setTimeout(() => A().beep(1400 + lv * 120, .18, 'triangle', .04), 430);
     }
-    A().overlay(`<div class="ultraburst">
-      <div class="flame">究 極 模 式</div>
-      <p class="muted" style="margin:10px 0 14px">整本字典開始燒。燒完之前，你只有一條命。</p>
+    const top = lv >= s.ULTRA_MAX;
+    A().overlay(`<div class="ultraburst${d.ash ? ' ash' : ''}" data-lv="${lv}">
+      <div class="flame">${(lv === 1 ? '究極模式' : d.name).split('').join(' ')}</div>
+      <p class="muted" style="margin:10px 0 14px">${d.ash ? '灰燼' : '究極'}第 <b>${lv}</b> / ${s.ULTRA_MAX} 階　${esc(d.code)}
+        <br>${d.ash ? '書已經燒完了，只剩一堆灰。沒有火光可以看，你只剩下記得的東西。' : '整本字典開始燒。燒完之前，你只有一條命。'}</p>
       <div class="rule">🔥 <b>一顆心</b>　—　錯一題就結束</div>
       <div class="rule">🧨 時間 <b>×${d.time}</b>　—　每題有一條引信，燒完就算逾時</div>
+      <div class="rule">🎯 通關門檻 <b>${Math.round(d.pass * 100)}%</b>　—　${d.pass >= 1 ? '一題都不能錯' : '比平常再嚴一點'}</div>
       <div class="rule">📖 <b>新字直接考最難的</b>　—　沒有四選一可以猜</div>
-      <div class="rule">✨ XP <b>×${d.xp}</b>　—　活著走出來才拿得到</div>
-      <p class="tiny" style="margin-top:12px">其他難度已經鎖住。想回頭：再打一次大寫 <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>A</kbd>。</p>
+      ${d.noItems ? '<div class="rule">🚫 <b>不准帶道具</b>　—　護心符、沙漏、XP 卡、復活石全部失效</div>' : ''}
+      ${d.allKinds ? '<div class="rule">🧨 <b>題型開關失效</b>　—　你關掉的題型，這一階照考</div>' : ''}
+      ${d.noStudy ? '<div class="rule">📕 <b>沒有學習卡</b>　—　新字直接上考場，先看一眼都不給</div>' : ''}
+      ${d.noHint ? `<div class="rule">🕳 <b>拼字不給字數</b>　—　連幾個字母都不告訴你</div>
+      <div class="rule">⏱ 每題秒數下限砍到 <b>${d.minSec} 秒</b>　—　時間倍率終於吃得到底</div>` : ''}
+      <div class="rule">✨ XP <b>×${d.xp}</b>　・　金幣 <b>×${d.coin}</b>　—　活著走出來才拿得到</div>
+      <div class="rule">🎁 寶箱保底 <b>${{ silver: '銀', gold: '金', rainbow: '彩虹' }[d.chest]}箱</b></div>
+      <p class="tiny" style="margin-top:12px">
+        ${top ? '這裡是最頂階，沒有更上面了。' : `再打一個 <kbd>+</kbd> 就上第 ${lv + 1} 階「${esc(s.ULTRA_NAMES[lv])}」（要接在剛才那串後面）。`}
+        <br>其他難度已經鎖住。想回頭：再打一次大寫 <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>A</kbd>。</p>
       <div class="btnrow" style="justify-content:center;margin-top:14px">
         <button class="btn primary" data-close="ok">燒吧</button>
       </div></div>`);
@@ -352,24 +415,50 @@
   // ---- 作弊選單 ----
   function tabCheat() {
     const s = S();
-    const d = s.DIFFICULTY.ultra;
     const on = s.secretDiff();
+    const d = s.DIFFICULTY[s.ultraId(s.ultraLevel() || 1)];
     const sw = (id, name, isOn, note) => `<div class="aword">
       <div class="arow" style="margin:0">
         <b style="flex:1">${esc(name)}</b>
         <button class="btn sm ${isOn ? 'primary' : 'ghost'}" data-acheat="${id}">${isOn ? '● 開著' : '○ 關著'}</button>
       </div>
       <p class="anote" style="margin:4px 0 0">${note}</p></div>`;
-    return `<h3>☠ 究極模式</h3>
+    const lv = s.ultraLevel();
+    const CHESTN = { silver: '銀', gold: '金', rainbow: '彩虹' };
+    // 究極階梯：爬到第幾階就有第幾階可以按，還沒爬到的只看得到名字（灰的）
+    const ladder = s.SECRET_DIFFS.map((id, k) => {
+      const u = s.DIFFICULTY[id], n = k + 1, reach = n <= lv, cur = n === lv;
+      // 每一段階梯的第一階前面插一條分隔，看得出「這裡換密技了」
+      const head = n === s.ultraEntry(u.code.replace(/\+*$/, ''))
+        ? `<h3 style="margin-top:14px">${u.ash ? '🕯 灰燼段' : '🔥 究極段'}　入口密技 <kbd>${esc(u.code)}</kbd></h3>` : '';
+      return head + `<div class="aword" style="${reach ? '' : 'opacity:.45'}">
+        <div class="arow" style="margin:0">
+          <b style="flex:1">${cur ? '▶ ' : ''}第 ${n} 階 ・ ${esc(u.name)}　<span class="anote" style="display:inline">${esc(u.code)}</span></b>
+          <button class="btn sm ${cur ? 'primary' : 'ghost'}" data-aultra="${n}">${cur ? '● 現在這階' : reach ? '切到這階' : '直接跳上去'}</button>
+        </div>
+        <p class="anote" style="margin:4px 0 0">時間 ×${u.time} ・ 通關門檻 ${Math.round(u.pass * 100)}%
+          ・ <b style="color:var(--gold)">XP ×${u.xp} ・ 金幣 ×${u.coin} ・ 寶箱保底${CHESTN[u.chest]}箱</b>
+          ${u.noItems ? ' ・ 🚫 不准帶道具' : ''}${u.allKinds ? ' ・ 🧨 題型開關失效' : ''}
+          ${u.noStudy ? ' ・ 📕 沒有學習卡' : ''}${u.noHint ? ` ・ 🕳 拼字不給字數 ・ ⏱ 下限 ${u.minSec} 秒` : ''}</p>
+      </div>`;
+    }).join('');
+    return `<h3>☠ 究極階梯（${lv}/${s.ULTRA_MAX} 階）</h3>
       <div class="aword">
         <div class="arow" style="margin:0">
-          <b style="flex:1">究極（${d.hearts} 顆心 ・ 時間 ×${d.time} ・ XP ×${d.xp}）</b>
+          <b style="flex:1">究極模式${on ? `：目前第 ${lv} 階「${esc(d.name)}」` : ''}</b>
           <button class="btn sm ${on ? 'primary' : 'ghost'}" data-a="secretDiff">${on ? '● 強制中' : '○ 關著'}</button>
         </div>
-        <p class="anote" style="margin:4px 0 0">${esc(d.desc)}。
-          <b>這不是多一個選項，是一個模式：打開就強制究極</b>，其他四檔會被鎖住按不動，
-          關掉才會回到你原本玩的難度。它是正常玩法，不是作弊 —— XP ×${d.xp} 實打實。</p>
+        <p class="anote" style="margin:4px 0 0">
+          <b>這不是多一個選項，是一個模式：打開就強制究極</b>，公開的四檔會被鎖住按不動，
+          關掉才會回到你原本玩的難度。它是正常玩法，不是作弊 —— XP 與金幣加成都實打實。<br>
+          打大寫 <kbd>EXTRA</kbd> 進第 1 階、<kbd>EXTREMELY</kbd> 直接進第 ${s.ASH_FROM} 階，
+          <b>後面每多打一個 <kbd>+</kbd> 就再上一階</b>（打到那一段的頂就停住）。
+          再打一次自己這一段的密技就整個關掉。</p>
       </div>
+      ${ladder}
+      <p class="anote">公開的四檔（輕鬆／標準／挑戰／地獄）刻意做得寬鬆、獎勵也普通 ——
+        那是每天都要來一趟的節奏。這條階梯才是拿來拚的：越上面越硬，XP 從 ×${s.DIFFICULTY.ultra.xp} 一路到
+        ×${s.DIFFICULTY[s.ultraId(s.ULTRA_MAX)].xp}。</p>
 
       <h3 style="margin-top:16px">😈 外掛</h3>
       ${sw('god', '無敵', s.cheat('god'), '答錯不扣血，永遠不會 GAME OVER。血條會變成 ♥∞。<br>答錯還是算錯：一樣進複習排程、一樣寫進家長回報。')}
@@ -384,7 +473,8 @@
       <h3 style="margin-top:16px">不用開面板的密技</h3>
       <p class="anote"><b>字母一定要大寫</b>（壓著 Shift，或開 Caps Lock），而且游標不能在輸入框裡：<br>
         <kbd>I</kbd><kbd>D</kbd><kbd>D</kbd><kbd>Q</kbd><kbd>D</kbd> → 切換無敵（致敬 Doom）<br>
-        <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>A</kbd> → 切換究極模式<br>
+        <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>A</kbd> → 究極階梯第 1 階（後面接 <kbd>+</kbd> 一階一階往上）<br>
+        <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>E</kbd><kbd>M</kbd><kbd>E</kbd><kbd>L</kbd><kbd>Y</kbd> → 直接跳到灰燼段（第 ${S().ASH_FROM} 階，一樣可以接 <kbd>+</kbd>）<br>
         <kbd>↑</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd><kbd>←</kbd><kbd>→</kbd><kbd>B</kbd><kbd>A</kbd> → 這個面板（B、A 也要大寫）</p>`;
   }
 
@@ -696,6 +786,10 @@
 
     const cheatBtn = t.closest('[data-acheat]');
     if (cheatBtn) return toggleCheat(cheatBtn.dataset.acheat);
+
+    // 究極階梯：面板可以直接跳到任何一階（不用在那邊打一排加號）
+    const ub = t.closest('[data-aultra]');
+    if (ub) return setUltraTo(+ub.dataset.aultra);
 
     const star = t.closest('[data-astar]');
     if (star) return cycleStar(star.dataset.astar);

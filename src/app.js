@@ -225,13 +225,20 @@
   /** 難度選擇鈕；建議難度會標出來，選到建議或更高才有 XP 適配加成。 */
   function diffPills() {
     const cur = S.settings.difficulty, rec = S.recommendDifficulty(), forced = S.diffForced();
+    const lv = S.ultraLevel();
     const pills = S.diffList().map(id => {
       const d = S.DIFFICULTY[id];
       const off = forced && !d.secret;        // 究極模式強制中：其他四檔留在畫面上但按不動
       return `<button class="pill ${cur === id ? 'on' : ''}${d.secret ? ' secret' : ''}" data-diff="${id}"${off ? ' disabled' : ''}
         title="${esc(off ? '究極模式強制中 —— 要換難度請先關掉究極（再打一次 EXTRA）' : d.desc)}">${d.secret ? '☠ ' : ''}${esc(d.name)}${id === rec && !forced ? ' ⭐' : ''}</button>`;
     }).join('');
-    return pills + (forced ? '<span class="tiny" style="align-self:center;color:var(--red)">☠ 究極模式強制中（再打一次 EXTRA 解除）</span>' : '');
+    if (!forced) return pills;
+    // 究極階梯：站在第幾階、下一階怎麼上去（加號只爬得到這一段的頂），全部寫在同一行
+    const d = S.diff();
+    const next = lv < S.ultraSegEnd(lv)
+      ? `　再打一個 <kbd>+</kbd> 上第 ${lv + 1} 階「${esc(S.ULTRA_NAMES[lv])}」`
+      : lv < S.ULTRA_MAX ? '　這一段到頂了 —— 上面還有，但加號上不去' : '　已經站在最頂階';
+    return pills + `<span class="tiny" style="align-self:center;color:var(--red)">☠ ${d.ash ? '灰燼' : '究極'}第 ${lv}/${S.ULTRA_MAX} 階（再打一次 ${esc(d.code.replace(/\+*$/, ''))} 解除）${next}</span>`;
   }
 
   /** 任務標籤的顏色類別（每種任務一個顏色，一眼看得出今天有哪幾種玩法）。 */
@@ -251,6 +258,16 @@
     </div>`;
   }
 
+  /* 衝刺目標的預設鈕：用「幾天」訂，不是用「這個範圍總共幾個字」訂 ——
+     一個月 900 字是讀得完的，「明天之前背完全書」只會讓人第一天就放棄。 */
+  function goalPresetBtns(primaryFirst) {
+    return S.GOAL_PRESETS.map((p, k) => {
+      const g = S.goalPreset(p.days);
+      const add = Math.max(0, g.target - S.goalScope(g.scope).known);
+      return `<button class="btn ${primaryFirst && !k ? 'primary' : ''}" data-goalpreset="${p.days}">📅 ${esc(p.name)}衝刺（再 ${add} 字）</button>`;
+    }).join('');
+  }
+
   /** 衝刺目標卡：倒數幾天、今天該學幾個字、落後多少。沒訂目標時給快速設定鈕。 */
   function goalCard() {
     const g = S.goalStat();
@@ -258,13 +275,10 @@
       return `<div class="card goalcard off">
         <h2>🎯 還沒訂衝刺目標</h2>
         <p class="muted">訂一個「哪天之前學會幾個字」，網站每天會自己算出今天要學幾個 —— 落後了數字會變大，不用手動改計畫。</p>
-        <div class="btnrow">
-          <button class="btn primary" data-goalpreset="lv3">第 3 級 1002 字（建議）</button>
-          <button class="btn" data-goalpreset="lv4">第 4 級 1002 字</button>
-          <button class="btn" data-goalpreset="all">全書 6012 字</button>
+        <div class="btnrow">${goalPresetBtns(true)}
           <button class="btn ghost" data-go="settings">自己設</button>
         </div>
-        <p class="tiny">期限預設 8/10，可以在設定頁改。</p>
+        <p class="tiny">預設是「正常速度讀得完」的量（一天 ${S.GOAL_PACE} 個新字，含複習大約 ${S.GOAL_PACE}–${Math.round(S.GOAL_PACE * 1.4)} 分鐘）。範圍、字數、期限都能在設定頁改。</p>
       </div>`;
     }
     const scopeName = g.scope === 'all' ? '全書' : `第 ${g.scope} 級`;
@@ -438,7 +452,7 @@
 
       <div class="card">
         <h2>闖關地圖</h2>
-        <p class="muted">6 個大關（級別 1～6），每個大關有 A–Z 的字母小關。正確率 <b style="color:var(--gold)">${Math.round(S.PASS_ACC * 100)}%</b> 以上才算通關，通關就有寶箱。</p>
+        <p class="muted">6 個大關（級別 1～6），每個大關有 A–Z 的字母小關。正確率 <b style="color:var(--gold)">${Math.round(S.passAcc() * 100)}%</b> 以上才算通關，通關就有寶箱。</p>
         <div class="stages" style="margin-top:10px">${lvRows}</div>
       </div>
 
@@ -481,6 +495,7 @@
           <button class="btn" data-go="records">📜 作答紀錄</button>
           <button class="btn" data-go="sweep">⚡ 快速篩選已會的字</button>
           <button class="btn" data-go="practice">🎯 自訂範圍練習</button>
+          <button class="btn" data-go="book">📓 我的單字本${(() => { const st = S.customStat(); return st.total ? `（${st.total} 字${st.due ? ' ・ 到期 ' + st.due : ''}）` : ''; })()}</button>
           <button class="btn" data-go="browse">📖 瀏覽字庫</button>
           <button class="btn" data-go="badges">🏅 成就（${S.profile.badges.length}/${S.BADGES.length}）與文法進度</button>
           <button class="btn" data-go="report">📋 成績單／家長回報</button>
@@ -560,15 +575,17 @@
 
   /** 這一輪考了什麼：答錯的字、答對的字、每個字用過的題型。重新挑戰時用來換題。 */
   function attemptInfo() {
-    const wrong = [], right = [], avoidKinds = {};
+    const wrong = [], right = [], avoidKinds = {}, book = {};
     (run ? run.answers : []).forEach(a => {
+      // 我的單字本的字不在詞彙表裡（i 是 null），用自己的 id 記「剛剛考過哪些題型」
+      if (a.q.cw) { (book[a.q.cw] = book[a.q.cw] || []).push(a.q.bookKind || a.q.kind); return; }
       const i = a.q.i;
       if (i == null) return;
       (avoidKinds[i] = avoidKinds[i] || []).push(a.q.kind);
       if (a.ok === false && !wrong.includes(i)) wrong.push(i);
       if (a.ok === true && !right.includes(i)) right.push(i);
     });
-    return { keep: wrong, drop: right, avoidKinds };
+    return { keep: wrong, drop: right, avoidKinds, book };
   }
 
   /* 重新挑戰不是「同一份考卷再來一次」：
@@ -589,8 +606,20 @@
     if (S.cheat('god')) return '<span class="hearts god" title="不會扣血">♥∞</span>';
     const alive = Math.max(0, Math.min(run.hearts, run.maxHearts));
     // 究極模式只有一顆心，畫成一朵還在燒的火 —— 熄了就是結束
-    if (S.secretDiff()) return `<span class="hearts fire" title="究極：一顆心">${alive ? '🔥' : '🕯'}</span>`;
+    if (S.secretDiff()) return `<span class="hearts fire" title="${esc(S.diff().name)}：一顆心">${alive ? '🔥' : '🕯'}</span>`;
     return `<span class="hearts">${'♥'.repeat(alive)}<span class="off">${'♥'.repeat(run.maxHearts - alive)}</span></span>`;
+  }
+
+  /* 句子底下的「還沒學過的字」註解。
+     文法題與造句／句子題的句子不是為了考單字寫的 —— 裡面出現一個沒學過的字，
+     卡住的是單字，那一題就白考了。所以先把不認得的字講出來，讓他考的是文法與造句。
+     skip：不可以註解的字（例如四個選項、要填的答案），否則等於直接把答案講出來。 */
+  function glossNote(text, skip) {
+    if (!text) return '';
+    const list = Q.unknownIn(text, { known: i => S.isKnown(i), skip: skip || [], max: 6 });
+    if (!list.length) return '';
+    return `<div class="glossbox"><b>還沒學過的字</b>${list.map(w =>
+      `<span class="gl"><b>${esc(Q.base(w.w))}</b> ${esc(w.tr)}</span>`).join('')}</div>`;
   }
 
   function drawQuestion() {
@@ -603,7 +632,8 @@
        等於「還沒看到題目就被算答錯」——使用者的體感就是「我明明選了正確答案卻給我錯」。 */
     run.drawnAt = Date.now();
     const p = q.prompt;
-    const useTimer = S.settings.timer && limitOf(q) > 0 && !S.cheat('noTimer');
+    // 每一題都計時，這不是設定 —— 只有作弊選單的「時間暫停」關得掉
+    const useTimer = limitOf(q) > 0 && !S.cheat('noTimer');
     let body = '';
 
     const speakBtn = p.speak ? `<button class="speak" data-say="${esc(p.speak)}" title="播放發音">🔊</button>` : '';
@@ -638,45 +668,54 @@
         <p class="tiny" style="margin-top:8px">聽不清楚可以按「慢速播放」或「看音標」。</p>`;
       setTimeout(() => say(p.speak, { twice: true }), 250);
     } else if (p.type === 'spell') {
-      body = `${lvTag}${qask(`<b>拼出</b>這個英文單字（${p.len} 個字母）`)}
+      // 灰燼段連「幾個字母」都不給：底線與字數一起收掉，只剩中文
+      const bare = S.diff().noHint;
+      body = `${lvTag}${qask(`<b>拼出</b>這個英文單字${bare ? '' : `（${p.len} 個字母）`}`)}
         <div class="qword zh">${esc(p.zh)}</div>
-        <div class="qph" style="letter-spacing:5px;font-size:22px;margin-top:10px">${esc(p.hint)}</div>
-        <p class="tiny" style="margin-top:6px">只給字數，不給任何字母。</p>
+        ${bare ? '' : `<div class="qph" style="letter-spacing:5px;font-size:22px;margin-top:10px">${esc(p.hint)}</div>`}
+        <p class="tiny" style="margin-top:6px">${bare ? '☠ 這一階連字數都不給。' : '只給字數，不給任何字母。'}</p>
         <input class="txt" id="ans" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入拼字">`;
     } else if (p.type === 'form') {
       body = `${lvTag}${qask(`請選出它的 <b class="hot">${esc(p.ask)}</b>`)}
         <div class="qword">${esc(p.word)} ${speakBtn}</div>
         <div class="qph">${esc(p.zh)}</div>`;
     } else if (p.type === 'cloze') {
+      // 註解要避開四個選項，不然等於把答案講出來
       body = `${lvTag}${qask('選出最適合<b>填進空格</b>的字')}
         <div class="qsent">${esc(p.sentence).replace(/\{[^}]*\}/, '<span class="gap">?</span>')}</div>
-        <div class="qzh">${esc(p.zh)}</div>`;
+        <div class="qzh">${esc(p.zh)}</div>
+        ${glossNote(p.sentence, q.opts)}`;
     } else if (p.type === 'order') {
       body = `${lvTag}${qask('把詞塊<b>排成正確的英文句子</b>')}
         <div class="qzh" style="font-size:17px;color:var(--tx)">${esc(p.zh)}</div>
         <div class="slot" id="slot"></div>
-        <div class="tiles" id="tiles">${p.tiles.map((t, k) => `<button class="tile" data-tile="${k}">${esc(t)}</button>`).join('')}</div>`;
+        <div class="tiles" id="tiles">${p.tiles.map((t, k) => `<button class="tile" data-tile="${k}">${esc(t)}</button>`).join('')}</div>
+        ${glossNote(p.tiles.join(' '))}`;
     } else if (p.type === 'trans') {
       body = `${lvTag}${qask('<b>填入</b>正確的字')}
         <div class="qzh" style="font-size:17px;color:var(--tx)">${esc(p.zh)}</div>
         <div class="qsent" style="margin-top:10px">${esc(p.sentence).replace('____', '<span class="gap">?</span>')}</div>
         <p class="tiny" style="margin-top:8px">提示：${esc(p.hint)}</p>
+        ${glossNote(p.sentence, [q.answer])}
         <input class="txt" id="ans" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入單字">`;
     } else if (p.type === 'free') {
       body = `${lvTag}${qask('用這個字<b>寫一句英文</b>')}
         <div class="qword">${esc(p.word)} ${speakBtn}</div>
         <div class="qph">${esc(p.zh)}</div>
         ${p.coll ? `<p class="tiny">常用搭配：${esc(p.coll)}</p>` : ''}
+        ${glossNote(p.coll, [p.word])}
         <textarea class="txt" id="ans" placeholder="例如：I decided to ..."></textarea>
         <p class="tiny">這題不判對錯。寫完之後下載今日紀錄，Claude Code 會逐句批改。</p>`;
     } else if (p.type === 'gmc') {
       body = `<div class="qtag">文法 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
         ${qask('選出<b>文法正確</b>的答案')}
-        <div class="qsent">${esc(p.sentence).replace(/_{2,}/, '<span class="gap">?</span>')}</div>`;
+        <div class="qsent">${esc(p.sentence).replace(/_{2,}/, '<span class="gap">?</span>')}</div>
+        ${glossNote(p.sentence)}`;
     } else if (p.type === 'gfix') {
       body = `<div class="qtag">找錯改錯 ・ ${esc(p.title)}${q.via ? ` ・ 來自這一關的 ${esc(q.via)}` : ''}</div>
         ${qask('這句有<b>一個錯</b>，把<b>整句</b>改對重寫')}
         <div class="qsent" style="color:var(--red)">${esc(p.sentence)}</div>
+        ${glossNote(p.sentence)}
         <textarea class="txt" id="ans" placeholder="寫出改正後的整句"></textarea>`;
     }
 
@@ -704,7 +743,7 @@
         <span class="tiny">${run.idx + 1}/${run.qs.length}</span>
         ${useTimer ? '<span class="timer" id="timer"></span>' : ''}
         ${useTimer && S.secretDiff() ? '<div class="fuse" id="fuse"><i></i></div>' : ''}
-        ${q.opts && S.owned('fifty') ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty} ${kbd('fifty')}</button>` : ''}
+        ${q.opts && S.owned('fifty') && S.itemsAllowed() ? `<button class="btn sm gold" data-act="fifty">刪去法 ×${S.inventory().fifty} ${kbd('fifty')}</button>` : ''}
       </div>
       <div class="card qcard ${q.redo ? 'redo' : ''} ${q.outside ? 'outside' : ''}" id="qcard">${redoTag}${outTag}${body}${optsHtml}${xrayHtml}${submitHtml}</div>
       <div id="fb"></div>
@@ -736,10 +775,12 @@
     return { frac, tag, sec: Math.round(ms / 100) / 10 };
   }
 
-  /** 這一題的實際秒數 = 題型基準 × 使用者的時間寬鬆度。 */
+  /** 這一題的實際秒數 = 題型基準 × 使用者的時間寬鬆度。
+      下限預設 5 秒（再快也要看得完題目）；灰燼段把下限降到 3 秒，
+      否則時間倍率砍到 ×0.11 也全被下限吃掉，那一段就不會更難。 */
   function limitOf(q) {
     const base = q.secs || Q.secsFor(q.kind);
-    return Math.max(5, Math.round(base * S.diff().time * ((run && run.timeMul) || 1)));
+    return Math.max(S.diff().minSec || 5, Math.round(base * S.diff().time * ((run && run.timeMul) || 1)));
   }
 
   function startTimer(q, resumeFrom) {
@@ -805,7 +846,7 @@
     const rm = memeLine('resume');
     if (rm) toast(rm);
     const q = run.qs[run.idx];
-    if (q && !run.locked && S.settings.timer && limitOf(q) > 0) startTimer(q, Math.max(1, run.left));
+    if (q && !run.locked && limitOf(q) > 0 && !S.cheat('noTimer')) startTimer(q, Math.max(1, run.left));
   }
 
   /** 放棄＝視同沒通過：不給星、連勝歸零、XP 作廢（作答紀錄不動）。 */
@@ -870,8 +911,11 @@
 
     // ---- 記錄 ----
     if (isFree) {
+      // 自訂字不在詞彙表裡（i 是 null），字面要從題目本身拿
       S.logFree({
-        i: q.i, w: V()[q.i].w, text: given || '',
+        i: q.i, cw: q.cw || null,
+        w: (q.i != null && V()[q.i]) ? V()[q.i].w : ((q.prompt && q.prompt.word) || ''),
+        text: given || '',
         unfinished: !given, timeout: !!timeout, at: new Date().toISOString(),
       });
     } else if (q.kind === 'gmc' || q.kind === 'gfix') {
@@ -883,10 +927,13 @@
     } else {
       // 補考題（同一關內再考一次答錯的字）算第 2 次作答：正確率只採計第 1 次，才不會被補考洗白
       const att = q.redo ? Math.max(2, run.attempt) : run.attempt;
-      S.answer(q.i, ok, att);
+      // 我的單字本走自己那一份間隔複習紀錄，不碰詞彙表的（i 是 null）
+      if (q.cw) S.customAnswer(q.cw, ok, att);
+      else S.answer(q.i, ok, att);
       // given / right 一起存下來：作答紀錄要看得出「當時寫了什麼」，事後無法重建
       S.logAnswer({
-        i: q.i, t: q.kind, ok, attempt: att, ms, timeout: !!timeout, redo: !!q.redo,
+        i: q.i, cw: q.cw || null, w: q.cw ? (S.customFind(q.cw) || {}).w : undefined,
+        t: q.kind, ok, attempt: att, ms, timeout: !!timeout, redo: !!q.redo,
         given: answerText(q, given), right: answerText(q, q.opts ? q.a : null) || q.answer || '',
         runId: run.runId,
       });
@@ -944,18 +991,26 @@
   const REDO_MAX = 2;                 // 同一個字在一關內最多補考幾次
   const REDO_GAP = 3;                 // 至少隔幾題才再考（不要馬上重複同一題）
   function queueRedo(q) {
-    if (!run || q.i == null || q.noGrade) return;
+    if (!run || q.noGrade) return;
+    if (q.i == null && !q.cw) return;                // 文法題不屬於某個字，不補考
     if (run.cfg.bonus) return;                       // 加碼題只有一題，不補考
     run.redo = run.redo || {};
-    const n = run.redo[q.i] || 0;
+    const key = q.cw || q.i;
+    const n = run.redo[key] || 0;
     if (n >= REDO_MAX) return;
     if (run.qs.length > 60) return;                  // 別讓一關無限長
-    const w = V()[q.i];
-    const b = (S.load().words[q.i] || {}).b || 0;
-    const nq = Q.forWord(w, b, (run.cfg.map ? S.diff().tierShift : 0));
+    let nq;
+    if (q.cw) {
+      // 我的單字本：換一種題型再考一次（避開剛剛那一種）
+      const avoid = {}; avoid[q.cw] = [q.bookKind || q.kind];
+      nq = Q.bookSet([S.customWord(q.cw)], { kinds: S.customCfg().kinds, n: 1 }, avoid)[0];
+    } else {
+      const b = (S.load().words[q.i] || {}).b || 0;
+      nq = Q.forWord(V()[q.i], b, (run.cfg.map ? S.diff().tierShift : 0));
+    }
     if (!nq) return;
     nq.redo = true;
-    run.redo[q.i] = n + 1;
+    run.redo[key] = n + 1;
     const at = Math.min(run.qs.length, run.idx + 1 + REDO_GAP);
     run.qs.splice(at, 0, nq);
     run.redoAdded = (run.redoAdded || 0) + 1;
@@ -1038,7 +1093,7 @@
     run.paused = false;
     clearInterval(run.timer);
     // 失敗還沒定案：可能會用復活石。等使用者選了「不復活」才寫入失敗紀錄。
-    const canRevive = S.owned('revive') && !run.revived;
+    const canRevive = S.owned('revive') && !run.revived && S.itemsAllowed();
     if (!canRevive) recordFail();
     sfx.dead();
     /* 掛掉也要看得到哪裡錯 —— 先把逐題檢討畫在後面，覆蓋層關掉就看得到，
@@ -1104,7 +1159,7 @@
 
   /** 復活石：血量回 1，從下一題繼續。因為失敗還沒登記，這一關仍然可以通關。 */
   function reviveStage() {
-    if (!run || !S.consume('revive')) return home();
+    if (!run || !S.itemsAllowed() || !S.consume('revive')) return home();
     run.revived = true;
     run.dead = false;
     run.overShown = false;
@@ -1125,7 +1180,7 @@
     const acc = graded.length ? run.right / graded.length : 0;
     // 通關門檻是 90%，星數就在 90% 以上再分級：全對 3 星、95% 以上 2 星
     const stars = acc >= 1 ? 3 : acc >= .95 ? 2 : 1;
-    const passed = acc >= S.PASS_ACC;
+    const passed = acc >= S.passAcc();
 
     const streakBefore = S.winStreak();
     const m = S.recordStage(lv, letter, passed, acc, stars, run.bestCombo);
@@ -1190,7 +1245,7 @@
          ${after.full ? '' : `<p class="tiny">還有 <b style="color:var(--gold)">${after.left}</b> 個字沒學會 —— 完成度 100% 才會開放下一關。</p>`}
          ${memeTag('clear')}`
       : `<div class="big" style="color:var(--red)">未通關</div>
-         <p class="muted">正確率 ${Math.round(acc * 100)}%，沒到 <b>${Math.round(S.PASS_ACC * 100)}%</b> 的通關門檻。這一關的 XP 與金幣都不算，要再挑戰一次。</p>
+         <p class="muted">正確率 ${Math.round(acc * 100)}%，沒到 <b>${Math.round(S.passAcc() * 100)}%</b> 的通關門檻。這一關的 XP 與金幣都不算，要再挑戰一次。</p>
          ${memeTag('fail')}
          ${m.shielded ? '<p style="color:var(--blue)">🛡 連勝護盾擋下了，連勝保住！</p>' : (streakBefore ? '<p class="tiny">連勝歸零。</p>' : '')}`;
 
@@ -1940,6 +1995,14 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
 
   /** 選字數畫面上的道具勾選區；沒有任何消耗品就不顯示。 */
   function itemPicker() {
+    // 究極高階整個機制關掉：不是「沒得選」，是規則明講不准帶 —— 所以還是要畫出來說明
+    if (!S.itemsAllowed()) {
+      return `<div class="card itemcard" style="margin-top:14px">
+        <h3>🚫 這一階不准帶道具</h3>
+        <p class="tiny">「${esc(S.diff().name)}」開始禁道具：護心符、沙漏、XP 卡、刪去法都不能用，
+          GAME OVER 也不能用復活石續命。身上的道具不會消失，回到下面的階數就能用。</p>
+      </div>`;
+    }
     // 一個都沒有時也要把整個機制畫出來（灰的），不然使用者會以為這個功能不存在
     const own = PRE_ITEMS.filter(it => S.owned(it.id));
     if (!own.length) {
@@ -2010,7 +2073,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
           : `<p class="tiny">這一關的字目前都還沒有例句，所以<b>不會出句子題</b>（絕不拉別的字母的字進來湊），
              名額改成多考這一關的單字。</p>`;
       })()}
-      <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.PASS_ACC * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
+      <p class="tiny" style="margin-top:10px">會優先出你還沒學會的字。<b style="color:var(--gold)">正確率 ${Math.round(S.passAcc() * 100)}% 以上才算通關</b>，通關就有寶箱（表現越好箱子越好）。</p>
       ${st.full ? `<p class="tiny" style="color:var(--gold)">🏆 這一關已 100% 完成 ${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}${st.autoDone ? '（所有字都會了，自動完成）' : ''}${st.combo ? `　最佳連擊 ×${st.combo}` : ''}${st.tries ? `　挑戰過 ${st.tries} 次` : ''}</p>`
       : st.cleared ? `<p class="tiny" style="color:var(--ac)">曾經通過，但完成度 ${Math.round(st.pct * 100)}%（還有 ${st.left} 個字沒學會）—— 練完才會開放下一關</p>`
         : st.tries ? `<p class="tiny">挑戰過 ${st.tries} 次，最佳正確率 ${Math.round(st.best * 100)}%${st.combo ? `　最佳連擊 ×${st.combo}` : ''}</p>` : ''}
@@ -2030,6 +2093,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     // 道具改成「這一關要不要用」自己勾（在選字數畫面勾選），不再自動吃掉
     const used = [];
     let hearts = S.diff().hearts, timeMul = 1, xpCard = 1;
+    if (!S.itemsAllowed()) useItems = {};              // 究極高階：勾了也不算，道具留在背包裡
     PRE_ITEMS.forEach(it => {
       const want = Math.min(useItems[it.id] || 0, S.inventory()[it.id] || 0);
       let got = 0;
@@ -2053,7 +2117,9 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       regen: info => Q.stageSet(lv, letter, n, shift, info),
     });
     // 學習卡另外打散：卡片順序和考題順序不一樣，才不會變成「照順序背」
-    const fresh = Q.shuffle([...new Set(qs.map(q => q.i).filter(i => i != null && !S.isSeen(i)))]);
+    // 灰燼段沒有學習卡：新字直接上考場，先看一眼的機會都不給
+    const fresh = S.diff().noStudy ? []
+      : Q.shuffle([...new Set(qs.map(q => q.i).filter(i => i != null && !S.isSeen(i)))]);
     if (fresh.length) {
       // back：學習卡階段按「先離開」要回到這個字母關的選單，而不是首頁
       window.__cards = { then: go, back: () => letterSetup(lv, letter) };
@@ -2076,6 +2142,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function useFifty() {
     const q = run && run.qs[run.idx];
     if (!q || !q.opts || run.locked) return;
+    if (!S.itemsAllowed()) return toast(`☠「${S.diff().name}」不准用道具`);
     if (!S.owned('fifty')) return toast('沒有「刪去法」了，去商店買');
     if (run.fiftyUsedOn === run.idx) return toast('這題已經用過了');
     if (!S.consume('fifty')) return;
@@ -2116,7 +2183,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
   function applyUltra() {
     const root = document.documentElement;
     if (!root || !root.setAttribute) return;
-    if (S.secretDiff()) root.setAttribute('data-ultra', '1');
+    // data-ultra 的值就是階數：樣式表用它一階一階加溫（[data-ultra="5"] 之後開始泛白）
+    if (S.secretDiff()) root.setAttribute('data-ultra', String(S.ultraLevel()));
     else if (root.removeAttribute) root.removeAttribute('data-ultra');
   }
 
@@ -2499,6 +2567,116 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     });
   }
 
+  // ---------------- 我的單字本（自己輸入的字）----------------
+  /* 一個表單就把「練單字／練文法／練造句」全部涵蓋，靠的是欄位而不是三個模式：
+       只填英文＋中文 → 出得了 英→中／中→英／拼字／聽發音
+       再填一句例句   → 多出 克漏字／中譯英填空／句子重組／自由造句
+       再挑一個文法點 → 多出 文法題（題目來自內建的 32 個文法點）
+     所以畫面上每個題型旁邊都標它「需要什麼」，沒填就是灰的 —— 使用者一眼看得出要補什麼。 */
+  let bk = { edit: null };
+
+  function bookFormVals() {
+    const g = sel => { const el = $(sel); return el ? String(el.value || '').trim() : ''; };
+    return { w: g('#bkw'), tr: g('#bktr'), p: g('#bkp'), ph: g('#bkph'), ex: g('#bkex'), zh: g('#bkzh'), gp: g('#bkgp') };
+  }
+
+  function book() {
+    setBack([home]);
+    const list = S.customs(), cfg = S.customCfg(), st = S.customStat();
+    const ed = bk.edit ? S.customFind(bk.edit) : null;
+    const gtitles = window.GRAMMAR_TITLES || {};
+    const gopts = ['<option value="">（不指定文法點）</option>'].concat(
+      Object.keys(window.GRAMMAR || {}).map(id =>
+        `<option value="${esc(id)}"${ed && ed.gp === id ? ' selected' : ''}>${esc(id)} ${esc(gtitles[id] || '')}</option>`)).join('');
+
+    const rows = list.map(c => {
+      const kinds = S.customKinds(c), r = S.customRec(c.id);
+      const due = !r.due || r.due <= S.todayStr();
+      return `<div class="bkrow${bk.edit === c.id ? ' on' : ''}">
+        <div class="bkmain">
+          <b>${esc(c.w)}</b> <span class="tiny">${esc(c.p || '')}</span>
+          <div class="tiny">${esc(c.tr)}</div>
+          ${c.ex ? `<div class="tiny bkex">${esc(S.markEx(c.ex, c.w).replace(/[{}]/g, ''))}${c.zh ? '　' + esc(c.zh) : ''}</div>` : ''}
+          <div class="tiny">${kinds.map(k => esc(S.CUSTOM_KIND_NAMES[k])).join('・')}
+            ${c.gp ? `　<span style="color:var(--purple)">文法 ${esc(c.gp)}</span>` : ''}
+            　<span style="color:${due ? 'var(--gold)' : 'var(--tx3)'}">box ${r.b}${due ? ' ・ 今天到期' : ' ・ ' + esc(r.due)}</span></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn sm ghost" data-bkedit="${esc(c.id)}">✎ 改</button>
+          <button class="btn sm ghost" data-bkdel="${esc(c.id)}" style="color:var(--red)">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    const kindPills = S.CUSTOM_KINDS.map(k => {
+      const need = S.CUSTOM_NEEDS[k];
+      const can = list.some(c => S.customKinds(c).includes(k));
+      const note = need === 'ex' ? '需要例句' : need === 'gp' ? '需要文法點' : '';
+      return `<button class="pill ${cfg.kinds.includes(k) ? 'on' : ''}" data-bkkind="${k}"
+        title="${esc(note ? note + (can ? '' : '（目前沒有一筆字填了）') : '只要英文＋中文就出得來')}"
+        ${can ? '' : 'style="opacity:.45"'}>${esc(S.CUSTOM_KIND_NAMES[k])}</button>`;
+    }).join('');
+
+    render(`<div class="card">
+      ${pageHead('📓 我的單字本', { back: true })}
+      <p class="muted">自己輸入要練的字。這些字<b>完全獨立</b>：有自己的間隔複習，不會混進關卡地圖，
+        也不會算進「學會幾個字」那類詞彙表的統計。</p>
+      ${list.length ? `<div class="grid2" style="margin-top:12px">
+        <div class="stat"><b>${st.total}</b><span>單字本字數</span></div>
+        <div class="stat ok"><b>${st.known}</b><span>學會（box 1+）</span></div>
+        <div class="stat purple"><b>${st.mastered}</b><span>長期記憶（box 5+）</span></div>
+        <div class="stat gold"><b>${st.due}</b><span>今天到期</span></div>
+      </div>` : ''}
+
+      <h3 style="margin-top:16px">${ed ? `✎ 修改「${esc(ed.w)}」` : '➕ 加一個字'}</h3>
+      <div class="bkform">
+        <label class="row">英文 <input class="txt bkin" id="bkw" value="${esc(ed ? ed.w : '')}" placeholder="例如：issue"></label>
+        <label class="row">中文 <input class="txt bkin" id="bktr" value="${esc(ed ? ed.tr : '')}" placeholder="例如：議題；發布"></label>
+        <label class="row">詞性 <input class="txt bkin" id="bkp" value="${esc(ed ? ed.p : '')}" placeholder="n./v.（可留白）"></label>
+        <label class="row">音標 <input class="txt bkin" id="bkph" value="${esc(ed ? ed.ph : '')}" placeholder="ˈɪʃu（可留白）"></label>
+        <label class="row">例句 <input class="txt bkin" id="bkex" value="${esc(ed ? ed.ex : '')}" placeholder="The government issued a warning."></label>
+        <label class="row">例句中譯 <input class="txt bkin" id="bkzh" value="${esc(ed ? ed.zh : '')}" placeholder="政府發布了警告。"></label>
+        <label class="row">文法點 <select class="txt bkin" id="bkgp">${gopts}</select></label>
+        <p class="tiny">例句<b>不用自己標</b>目標字，存的時候會自動找出來（找不到就不會出克漏字那幾種題型）。
+          填了例句才有克漏字／中譯英／句子重組／自由造句；挑了文法點才有文法題。</p>
+        <div class="btnrow">
+          <button class="btn primary" data-act="${ed ? 'bkSave' : 'bkAdd'}">${ed ? '儲存修改' : '加進單字本'}</button>
+          ${ed ? '<button class="btn ghost" data-act="bkCancel">取消</button>' : ''}
+        </div>
+      </div>
+
+      <h3 style="margin-top:18px">要練哪些題型</h3>
+      <p class="tiny">灰掉的表示「目前沒有一筆字填得出這種題」—— 補上例句或文法點就會亮起來。至少要留一種。</p>
+      <div class="pills">${kindPills}</div>
+      <label class="slider">一次練幾題：<b>${cfg.n}</b> 題
+        <input type="range" min="5" max="40" step="5" value="${cfg.n}" data-bkn></label>
+      <div class="btnrow">
+        <button class="btn primary big-btn" data-act="bkStart" ${list.length ? '' : 'disabled'}>開始練習</button>
+        <button class="btn" data-act="bkStartDue" ${st.due ? '' : 'disabled'}>只練今天到期的（${st.due}）</button>
+      </div>
+      <p class="tiny">練習會用你目前的難度（血量、時間、XP 倍率都照算），也會寫進今天的作答紀錄。</p>
+    </div>
+    ${list.length ? `<div class="card"><h3>單字本（${list.length}）</h3>${rows}</div>`
+      : '<div class="card"><p class="muted">單字本還是空的。上面填一個字就會出現在這裡。</p></div>'}`);
+  }
+
+  /** 開始練單字本。due=true 只練今天到期的。 */
+  function bookStart(due) {
+    const list = due ? S.customDue() : S.customs();
+    if (!list.length) return toast('單字本裡沒有可以練的字');
+    const cfg = S.customCfg();
+    const words = list.map(c => S.customWord(c));
+    const make = avoid => Q.bookSet(words, cfg, avoid);
+    const qs = make();
+    if (!qs.length) return toast('這些字目前出不了你勾選的題型 —— 補一句例句，或多勾幾種題型');
+    runStage({
+      title: due ? '單字本 ・ 今天到期' : '我的單字本',
+      questions: qs, hearts: S.diff().hearts, backTo: book,
+      // 重來時換題型再考一次（同一批字，不同考法）
+      regen: info => make(info && info.book),
+    });
+  }
+
   // ---------------- 字庫瀏覽 ----------------
   let bq = { q: '', lv: 0, page: 0 };
   function browse() {
@@ -2570,8 +2748,11 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     const rows = res.rows.map(x => {
       const w = x.i != null && V()[x.i] ? V()[x.i] : null;
       const mark = x.ok === null ? '<span style="color:var(--tx2)">📝</span>' : x.ok ? '<span style="color:var(--ac)">✓</span>' : '<span style="color:var(--red)">✗</span>';
+      // 自訂字不在詞彙表裡，字面是當初寫進紀錄裡的（那個字之後被刪掉也還看得到）
+      const cw = x.cw ? (x.w || (S.customFind(x.cw) || {}).w || '') : '';
       const what = x.cat === 'gram' ? esc(x.title || (window.GRAMMAR_TITLES || {})[x.id] || '文法題')
-        : w ? `<b>${esc(w.w)}</b> ${dictMini(w.w)} <span class="tiny">${esc(w.p)} L${w.lv}</span>` : '—';
+        : w ? `<b>${esc(w.w)}</b> ${dictMini(w.w)} <span class="tiny">${esc(w.p)} L${w.lv}</span>`
+          : cw ? `<b>${esc(cw)}</b> ${dictMini(cw)} <span class="tiny">📓 我的單字本</span>` : '—';
       const kind = x.cat === 'free' ? '自由造句' : esc(S.KIND_NAMES[x.t] || x.t || (x.cat === 'gram' ? '文法' : ''));
       const yours = x.cat === 'free' ? esc(x.text || '') : esc(x.given || '（未作答）');
       const right = x.ok === false ? `<div class="tiny" style="color:var(--ac)">正解：${esc(x.right || '')}</div>` : '';
@@ -2775,13 +2956,17 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       ${pageHead(`設定`, { back: true })}
       <h3>🎯 衝刺目標</h3>
       <p class="tiny">訂「哪天之前學會幾個字」，首頁會自動算今天要學幾個。範圍選一個級別最實際。</p>
+      <div class="goalbox">
+        <p class="tiny">最快的訂法：按一個天數，字數自己算 —— 一天 ${S.GOAL_PACE} 個新字，那是正常速度讀得完的量。</p>
+        <div class="btnrow">${goalPresetBtns(false)}</div>
+      </div>
       <div class="pills">
         ${['all', 1, 2, 3, 4, 5, 6].map(v =>
       `<button class="pill ${String(g.scope) === String(v) ? 'on' : ''}" data-goalscope="${v}">${v === 'all' ? '全書' : '第 ' + v + ' 級'}</button>`).join('')}
       </div>
       <label class="slider">目標字數：<b>${g.target || 0}</b> 字（範圍內共 ${g.total} 字）
         <input type="range" min="0" max="${g.total}" step="${g.total > 1200 ? 100 : 50}" value="${g.target || 0}" data-goaltarget></label>
-      <label class="row">期限：<input type="date" class="txt" style="font-size:15px;letter-spacing:0;width:auto;margin:0;text-align:left" value="${g.until || '2026-08-10'}" data-goaluntil></label>
+      <label class="row">期限：<input type="date" class="txt" style="font-size:15px;letter-spacing:0;width:auto;margin:0;text-align:left" value="${g.until || S.goalPreset(30).until}" data-goaluntil></label>
       <p class="tiny">${g.on
       ? `目前：${g.scope === 'all' ? '全書' : '第 ' + g.scope + ' 級'} ${g.target} 字 ・ ${g.until} 前 → 剩 ${g.daysLeft} 天，每天要 <b style="color:var(--gold)">${g.perDay}</b> 字`
       : '還沒啟用（字數與期限都填好就會自動啟用）'}</p>
@@ -2803,11 +2988,13 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <p class="tiny">新單字會在闖關前自動出現學習卡，不用另外設定數量。</p>
       <h3 style="margin-top:16px">關卡難度</h3>
       <div class="pills">${diffPills()}</div>
-      <p class="tiny">難度決定血量、作答時間、題型難易與 XP 加成；題數是另外一組設定，兩者互不影響。</p>
+      <p class="tiny">難度決定血量、作答時間、題型難易、通關門檻與 XP／金幣加成；題數是另外一組設定，兩者互不影響。
+        公開的四檔都很寬鬆、獎勵也普通 —— 想要大獎勵要爬究極階梯。</p>
       <h3 style="margin-top:16px">要練哪些題型</h3>
       <p class="tiny">關掉的題型就不會再出現。至少要留一種。</p>
+      ${S.diff().allKinds ? `<p class="tiny" style="color:var(--red)">☠「${esc(S.diff().name)}」把這組開關整個蓋掉：你關掉的題型在這一階照樣會考。下面顯示的是你原本的設定，回到低階就會生效。</p>` : ''}
       <div class="pills">${S.ALL_KINDS.map(k =>
-        `<button class="pill ${S.kindOn(k) ? 'on' : ''}" data-kind="${k}">${esc(S.KIND_NAMES[k])}</button>`).join('')}</div>
+        `<button class="pill ${S.offKinds().includes(k) ? '' : 'on'}" data-kind="${k}">${esc(S.KIND_NAMES[k])}</button>`).join('')}</div>
       <h3 style="margin-top:16px">⌨ 鍵盤快速鍵</h3>
       <p class="tiny">整條動線都可以不用滑鼠。點「改鍵」之後直接按你要的鍵（Shift、Enter、Delete、空白鍵都可以）。
         同一個鍵可以綁在不同動作上，系統會依當下畫面決定要做什麼。</p>
@@ -2819,7 +3006,6 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       <div class="btnrow"><button class="btn sm ghost" data-act="resetKeys">還原成預設鍵</button></div>
 
       <h3 style="margin-top:16px">其他</h3>
-      <label class="row"><input type="checkbox" ${c.timer ? 'checked' : ''} data-chk="timer">每題倒數計時</label>
       <label class="row"><input type="checkbox" ${c.instantFeedback ? 'checked' : ''} data-chk="instantFeedback">每題答完立刻對答案（預設關閉：整關結束才一次結算）</label>
       <label class="row"><input type="checkbox" ${c.sweepCheck ? 'checked' : ''} data-chk="sweepCheck">快速篩選時抽考 2 題確認（預設關：說會就直接通過）</label>
       <label class="row"><input type="checkbox" ${c.reviewMastered ? 'checked' : ''} data-chk="reviewMastered">複習時也抽已經練起來的字（box 5 以上・預設關）</label>
@@ -2982,15 +3168,26 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (rp) { rq.page = Math.max(0, rq.page + +rp.dataset.rpage); return records(); }
     const gp = t.closest('[data-goalpreset]');
     if (gp) {
-      const v = gp.dataset.goalpreset;
-      const scope = v === 'all' ? 'all' : +v.replace('lv', '');
-      const total = scope === 'all' ? V().length : 1002;
-      const g = S.setGoal({ scope, target: total, until: '2026-08-10', on: true });
+      const p = S.setGoalPreset(+gp.dataset.goalpreset);
       const st = S.goalStat();
-      S.setGoal({ planned: st.perDay });               // 記下一開始的每日量，之後才看得出落後
-      toast(`目標：${scope === 'all' ? '全書' : '第 ' + scope + ' 級'} ${total} 字，${g.until} 前 → 每天 ${st.perDay} 字`);
-      return home();
+      toast(`目標：${p.scope === 'all' ? '全書' : '第 ' + p.scope + ' 級'} ${p.target} 字，${p.until} 前 → 每天 ${st.perDay} 字`);
+      return gp.closest('.goalbox') ? settings() : home();
     }
+    // ---- 我的單字本 ----
+    const bke = t.closest('[data-bkedit]');
+    if (bke) { bk.edit = bke.dataset.bkedit; return book(); }
+    const bkd = t.closest('[data-bkdel]');
+    if (bkd) {
+      const c = S.customFind(bkd.dataset.bkdel);
+      if (c && S.customRemove(c.id)) {
+        if (bk.edit === c.id) bk.edit = null;
+        toast(`已刪除「${c.w}」`);
+      }
+      return book();
+    }
+    const bkk = t.closest('[data-bkkind]');
+    if (bkk) { S.toggleCustomKind(bkk.dataset.bkkind); return book(); }
+
     const oc = t.closest('[data-openchest]');
     if (oc) return revealChest(+oc.dataset.openchest);
     const swl = t.closest('[data-swlv]');
@@ -3048,6 +3245,8 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     }
     const n = e.target.closest('[data-n]');
     if (n) { pr.n = +n.value; n.closest('label').querySelector('b').textContent = n.value; }
+    const bn = e.target.closest('[data-bkn]');
+    if (bn) { S.setCustomCfg({ n: +bn.value }); bn.closest('label').querySelector('b').textContent = bn.value; }
     const gt = e.target.closest('[data-goaltarget]');
     if (gt) {
       S.setGoal({ target: +gt.value });
@@ -3336,6 +3535,25 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
         regen: () => Q.reviewSet(Q.shuffle(poolOf()).slice(0, pr.n).map(w => w.i), S.diff().tierShift),
       });
     }
+    // ---- 我的單字本 ----
+    if (a === 'bkAdd' || a === 'bkSave') {
+      const v = bookFormVals();
+      if (!v.w || !v.tr) return toast('英文和中文都要填 —— 少一個就出不了題');
+      if (a === 'bkSave' && bk.edit) {
+        S.customUpdate(bk.edit, v);
+        bk.edit = null;
+        toast(`已更新「${v.w}」`);
+      } else {
+        const c = S.customAdd(v);
+        if (!c) return toast('加不進去，檢查一下英文和中文');
+        const kinds = S.customKinds(c).map(k => S.CUSTOM_KIND_NAMES[k]);
+        toast(`已加入「${c.w}」—— 出得了：${kinds.join('、')}`);
+      }
+      return book();
+    }
+    if (a === 'bkCancel') { bk.edit = null; return book(); }
+    if (a === 'bkStart') return bookStart(false);
+    if (a === 'bkStartDue') return bookStart(true);
     if (a === 'exportAll') {
       download(`vocabQuest-backup-${S.todayStr()}.json`, JSON.stringify(S.load(), null, 2), 'application/json');
       return toast('已匯出備份');
@@ -3445,6 +3663,7 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
     if (where === 'bag') return bag();
     if (where === 'sweep') return sweepStart();
     if (where === 'practice') return practice();
+    if (where === 'book') return book();
     if (where === 'browse') return browse();
     if (where === 'badges') return badges();
     if (where === 'records') return records();

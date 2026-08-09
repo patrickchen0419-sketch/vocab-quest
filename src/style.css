@@ -376,6 +376,70 @@ html[data-ultra] .hearts.fire {
 .ultraburst .rule { border-top: 1px solid #7c3115; padding: 9px 0; font-size: 14.5px; color: #ffd9c2; }
 .ultraburst .rule b { color: #ff8a3c; }
 
+/* 階梯越上面燒得越旺：底色更黑、火光更白、呼吸更急。
+   刻意只動變數與幾個時間值 —— 上面那一整套「燒起來」不必為了分階再寫七遍。 */
+html[data-ultra="4"] { --ac: #ffa64d; --line: #8a3a17; }
+html[data-ultra="5"], html[data-ultra="6"], html[data-ultra="7"] {
+  --bg: #0c0402; --bg2: #170603; --ac: #ffc46b; --ac2: #ff6a1a; --line: #93401a;
+}
+html[data-ultra="6"] body, html[data-ultra="7"] body { animation-duration: 2.6s; }
+/* 最頂階「焚魂 EX」：火光燒到發白，作答卡整張泛光 */
+html[data-ultra="7"] { --ac: #fff0c2; --ac2: #ff8a1f; --tx: #fffaf3; }
+html[data-ultra="7"] body::before { animation-duration: 4s; }
+html[data-ultra="7"] .qcard {
+  border-color: #ffb04a;
+  box-shadow: inset 0 0 60px rgba(255, 140, 20, .28), 0 0 40px rgba(255, 110, 0, .35);
+}
+
+/* ------------------------------------------------------------
+   灰燼段（第 8–12 階，EXTREMELY）：火燒完了。
+   所以外觀不是「更旺」，是**熄掉** —— 橘紅退成冷灰，餘燼變成飄下來的灰，
+   底部那條「還在燒的書口」關掉。看起來比火還安靜，那才是真正的最後一段。
+   ------------------------------------------------------------ */
+html[data-ultra="8"], html[data-ultra="9"], html[data-ultra="10"],
+html[data-ultra="11"], html[data-ultra="12"] {
+  --bg: #060607; --bg2: #0d0d0f;
+  --card: #121214; --card2: #1a1a1e;
+  --line: #3a3a40;
+  --ac: #c8c8d0; --ac2: #8b8b95;
+  --tx: #ececed; --tx2: #a8a8b0; --tx3: #75757e;
+  --gold: #d6d2c4;
+}
+html[data-ultra="8"] body, html[data-ultra="9"] body, html[data-ultra="10"] body,
+html[data-ultra="11"] body, html[data-ultra="12"] body {
+  background-image:
+    radial-gradient(900px 420px at 12% -8%, rgba(150, 150, 165, .12), transparent 70%),
+    radial-gradient(760px 380px at 88% 4%, rgba(90, 90, 100, .10), transparent 70%),
+    repeating-linear-gradient(135deg, rgba(200, 200, 210, .022) 0 2px, transparent 2px 16px);
+  animation: none;                       /* 沒有火了，就不該還在呼吸 */
+}
+/* 灰往下飄，不再往上竄 */
+html[data-ultra="8"] body::before, html[data-ultra="9"] body::before,
+html[data-ultra="10"] body::before, html[data-ultra="11"] body::before,
+html[data-ultra="12"] body::before {
+  inset: -30vh 0 0 0;
+  background-image:
+    radial-gradient(2px 2px at 14% 0%, rgba(220, 220, 230, .5), transparent 60%),
+    radial-gradient(1.5px 1.5px at 33% 0%, rgba(180, 180, 195, .45), transparent 60%),
+    radial-gradient(2.5px 2.5px at 52% 0%, rgba(235, 235, 240, .4), transparent 60%),
+    radial-gradient(1.5px 1.5px at 71% 0%, rgba(160, 160, 175, .5), transparent 60%),
+    radial-gradient(2px 2px at 88% 0%, rgba(205, 205, 215, .42), transparent 60%);
+  animation: ashfall 11s linear infinite;
+}
+@keyframes ashfall {
+  from { transform: translateY(0); opacity: 0; }
+  12% { opacity: .8; }
+  to { transform: translateY(115vh); opacity: 0; }
+}
+html[data-ultra="12"] { --ac: #f2f2f4; --line: #4c4c54; }
+.ultraburst.ash .flame {
+  background: linear-gradient(180deg, #ffffff, #c9c9d2 45%, #6e6e78 80%, #2a2a2e);
+  filter: drop-shadow(0 0 16px rgba(200, 200, 215, .55));
+  animation: burnin .9s ease-out both;   /* 定住就好，不再搖 */
+}
+.ultraburst.ash .rule { border-top-color: #3a3a40; color: #d9d9de; }
+.ultraburst.ash .rule b { color: #f2f2f4; }
+
 /* 減少動態偏好：火還在，但不再閃 —— 會誘發不適的是閃爍，不是顏色 */
 @media (prefers-reduced-motion: reduce) {
   html[data-ultra] body, html[data-ultra] body::before,
@@ -717,6 +781,38 @@ table.log tr.rowfree td { background: rgba(169,131,255,.06); }
 .stepper .btn.sm { min-width: 34px; padding: 5px 10px; font-size: 16px; line-height: 1; }
 .stepper .num { min-width: 24px; text-align: center; font-size: 17px; font-weight: 900; }
 .itemrow.on .stepper .num { color: var(--purple); }
+
+/* ================= 還沒學過的字（句子題與文法題的註解）================= */
+/* 刻意做得小而安靜：它是註腳，不是題目的一部分 —— 太顯眼會把視線從句子上拉走 */
+.glossbox {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin-top: 10px; padding: 8px 11px;
+  background: var(--bg2); border: 1px dashed var(--line); border-radius: 10px;
+  font-size: 12.5px; color: var(--tx2);
+}
+.glossbox > b { color: var(--tx3); font-size: 11.5px; letter-spacing: .5px; }
+.glossbox .gl { white-space: nowrap; }
+.glossbox .gl b { color: var(--ac); font-weight: 800; margin-right: 3px; }
+
+/* ================= 我的單字本 ================= */
+/* 表單一行一欄，標籤固定寬度靠左 —— 手機上一次只看得到一件事，不要排成兩欄擠在一起 */
+.bkform { margin-top: 10px; }
+.bkform label.row { align-items: center; gap: 10px; font-size: 13.5px; color: var(--tx2); }
+.bkform label.row > .bkin { flex: 1; min-width: 0; }
+.txt.bkin {
+  font-size: 15px; letter-spacing: 0; text-align: left;
+  margin: 0; padding: 8px 11px; width: auto;
+}
+select.txt.bkin { cursor: pointer; }
+.bkrow {
+  display: flex; align-items: center; gap: 12px; margin: 8px 0;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px;
+}
+.bkrow.on { border-color: var(--ac); background: rgba(52, 211, 166, .1); }
+.bkrow .bkmain { flex: 1; min-width: 0; }
+.bkrow .bkmain b { font-size: 15.5px; }
+.bkrow .bkex { color: var(--tx3); font-style: italic; }
+.bkrow .btnrow { flex: none; margin: 0; }
 
 /* ================= 蓋住的答案 ================= */
 .revealbtn {

@@ -225,7 +225,10 @@
   }
 
   // ================= 運用層 =================
-  function sent(w) { return (window.SENTENCES || {})[w.w] || null; }
+  /* 例句來源：字自己帶的優先，其次才查例句庫。
+     「自己帶」是給「我的單字本」用的 —— 使用者輸入的例句就掛在字上，
+     這樣克漏字／中譯英／句子重組／自由造句四種題型完全不用改就能直接用。 */
+  function sent(w) { return (w && w.sent) || (window.SENTENCES || {})[w.w] || null; }
   const marked = ex => (ex.match(/\{([^}]*)\}/) || [, ''])[1];
   const plainSent = ex => ex.replace(/[{}]/g, '');
 
@@ -697,9 +700,124 @@
       .map(i => forWord(V()[i], null, shift)).filter(Boolean);
   }
 
+  /* ---- 句子裡「還沒學過」的字 -------------------------------------------
+     文法題與造句題的句子不是為了考單字而寫的：句子裡出現一個沒學過的字，
+     卡住的是單字，不是文法或造句能力 —— 那一題就白考了。
+     所以這裡把句子拆開，挑出「詞彙表裡有、但這個人還沒學會」的字，讓畫面直接註解出來。 */
+  let FORM_INDEX = null;
+  function formIndex() {
+    if (FORM_INDEX) return FORM_INDEX;
+    FORM_INDEX = new Map();
+    V().forEach(w => {
+      if (!w.tr) return;
+      acceptable(w.w).forEach(f => { if (f && !FORM_INDEX.has(f)) FORM_INDEX.set(f, w); });
+    });
+    return FORM_INDEX;
+  }
+  /** 把一個字還原成字典形（試幾種常見的變化形）；找不到就回 null。 */
+  function lookupForm(tok) {
+    const m = formIndex(), t = String(tok || '').toLowerCase();
+    if (!t) return null;
+    if (m.has(t)) return m.get(t);
+    const cand = [];
+    if (/ies$/.test(t)) cand.push(t.replace(/ies$/, 'y'));
+    if (/(ches|shes|sses|xes|zes)$/.test(t)) cand.push(t.slice(0, -2));
+    if (/s$/.test(t)) cand.push(t.slice(0, -1));
+    if (/ed$/.test(t)) cand.push(t.slice(0, -2), t.slice(0, -1));
+    if (/ing$/.test(t)) cand.push(t.slice(0, -3), t.slice(0, -3) + 'e');
+    if (/(er|est)$/.test(t)) cand.push(t.replace(/(er|est)$/, ''), t.replace(/(er|est)$/, 'e'));
+    // 重複子音的變化形：stopped → stop、running → run
+    const dbl = t.match(/^(.*?)([bcdfghjklmnpqrstvwxz])\2(ed|ing|er|est)$/);
+    if (dbl) cand.push(dbl[1] + dbl[2]);
+    for (const c of cand) if (m.has(c)) return m.get(c);
+    return null;
+  }
+  /* 功能詞永遠不註解。「the ＝ 那」「because ＝ 因為」這種註解幫不上任何人，
+     卡住一題文法的也絕不會是它們 —— 印出來只是把視線從句子上拉走。 */
+  const GLOSS_STOP = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'so', 'if', 'as', 'than', 'that', 'this', 'these', 'those',
+    'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being', 'do', 'does', 'did', 'have', 'has', 'had',
+    'will', 'would', 'can', 'could', 'shall', 'should', 'may', 'might', 'must',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+    'my', 'your', 'his', 'its', 'our', 'their', 'mine', 'yours', 'ours', 'theirs',
+    'who', 'whom', 'whose', 'which', 'what', 'when', 'where', 'why', 'how',
+    'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from', 'about', 'into', 'over', 'under',
+    'not', 'no', 'yes', 'very', 'too', 'also', 'there', 'here', 'because', 'while', 'after', 'before',
+  ]);
+  /* 註解清單。難的排前面（級別高＝越不可能會），最多幾個 ——
+     一句話下面掛十個註解就變成閱讀理解題了，反而更難讀。
+     第 1 級是國小程度，預設也不註解（minLv）：那不是看不懂句子的原因。 */
+  function unknownIn(text, opts) {
+    const o = opts || {};
+    const known = o.known || (() => false);
+    const minLv = o.minLv == null ? 2 : o.minLv;
+    /* 要避開的字先還原成字典形再比對：選項寫的是 issued，字典裡是 issue，
+       只比字面的話「避開答案」會整個失效，等於把答案印在題目下面。 */
+    const skip = new Set();
+    (o.skip || []).filter(Boolean).forEach(x => String(x).split(/[^A-Za-z'’-]+/).forEach(tok => {
+      if (!tok) return;
+      skip.add(base(tok).toLowerCase());
+      const f = lookupForm(tok);
+      if (f) skip.add(base(f.w).toLowerCase());
+    }));
+    const out = [], seen = new Set();
+    String(text || '').replace(/[{}_]/g, ' ').split(/[^A-Za-z'’-]+/).forEach(tok => {
+      const t = tok.replace(/^['’-]+|['’-]+$/g, '');
+      if (t.length < 3 || GLOSS_STOP.has(t.toLowerCase())) return;
+      const w = lookupForm(t);
+      if (!w || seen.has(w.i) || (w.lv || 0) < minLv) return;
+      if (skip.has(base(w.w).toLowerCase()) || GLOSS_STOP.has(base(w.w).toLowerCase())) return;
+      if (known(w.i)) return;
+      seen.add(w.i);
+      out.push(w);
+    });
+    out.sort((a, b) => (b.lv - a.lv) || ((a.fq || 9e9) - (b.fq || 9e9)));
+    return out.slice(0, o.max || 6);
+  }
+
+  /* 我的單字本考卷：把使用者勾選的題型混著出。
+     出不出得來要看那一筆字填了什麼 —— 沒寫例句就不會有克漏字，沒挑文法點就不會有文法題。
+     所以這裡是「這個題型生不出來就換一種」，而不是硬出一題空白的。 */
+  const BOOK_GEN = {
+    e2c: q_e2c, c2e: q_c2e, listen: q_listen, spell: q_spell,
+    cloze: q_cloze, trans: q_trans, order: q_order, free: q_free,
+  };
+  /** 文法題出自這個字挑的文法點（題目來自 grammar.js，不是使用者自己寫的）。 */
+  function bookGrammar(w) {
+    const id = w.gp || (w.sent && w.sent.gp);
+    const u = id && (window.GRAMMAR || {})[id];
+    if (!u || !u.items || !u.items.length) return null;
+    return q_grammar(id, Math.floor(Math.random() * u.items.length));
+  }
+  function bookSet(words, cfg, avoid) {
+    const list = (words || []).filter(Boolean);
+    if (!list.length) return [];
+    const want = (cfg && cfg.kinds && cfg.kinds.length) ? cfg.kinds.slice() : ['e2c', 'c2e', 'spell'];
+    const n = Math.max(1, Math.min(60, (cfg && cfg.n) || 12));
+    const av = avoid || {};
+    const out = [];
+    const pool = shuffle(list);
+    let miss = 0;
+    for (let k = 0; out.length < n && miss < pool.length * 3; k++) {
+      const w = pool[k % pool.length];
+      let q = null, used = '';
+      for (const kind of shuffle(want)) {
+        // 剛剛考過的題型先跳過（重新挑戰時換一種考法）；真的湊不到才會用回去
+        if (av[w.cw] && av[w.cw].includes(kind) && want.length > 1) continue;
+        q = kind === 'gram' ? bookGrammar(w) : (BOOK_GEN[kind] ? BOOK_GEN[kind](w) : null);
+        if (q) { used = kind; break; }
+      }
+      if (!q) { miss++; continue; }
+      q.cw = w.cw; q.bookKind = used;
+      out.push(q);
+    }
+    return shuffle(out);
+  }
+
   window.Quiz = {
     base, expanded, acceptable, distractors, grade, checkFree,
-    forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet,
+    forWord, reviewSet, newCheckSet, applySet, grammarSet, placementSet, customSet, bookSet,
+    unknownIn, lookupForm,
     stageSet, fixSet, wrongSet, byErrWeight, applyPick, hasSent, applyChance, phDist, audible,
     grammarForStage, bandForLevel, sentPool,
     q_free, q_grammar, plainSent, FORM_LABEL, shuffle,

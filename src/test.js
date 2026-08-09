@@ -738,10 +738,168 @@ t('難度會改變出題偏向：越難越常考拼字', () => {
   assert(count(1) > count(-1), '難度提高應更常出拼字題');
 });
 
+t('公開四檔刻意寬鬆、獎勵也普通：血夠多、時間夠寬、XP 不誇張', () => {
+  const o = S.DIFF_ORDER.map(id => S.DIFFICULTY[id]);
+  assert(o[0].hearts >= 8, '輕鬆的血量不夠多：' + o[0].hearts);
+  assert(o[o.length - 1].hearts >= 3, '公開難度不該只有一顆心 —— 那是究極的招牌');
+  assert(o[0].time >= 1.5 && o[1].time > 1, '輕鬆／標準的時間應該很寬');
+  assert(o[0].xp < 1 && o[1].xp < 1, '前面難度的獎勵應該低於基準（×1）');
+  assert(o[o.length - 1].xp <= 1.5, '公開難度的 XP 不該追上究極階梯');
+  o.forEach(d => assert(d.coin > 0 && d.coin <= 1.5, `${d.id} 的金幣倍率不該超過 ×1.5`));
+});
+
 t('setDifficulty 存得起來、讀得回', () => {
   S.setDifficulty('hard');
   assert(S.diff().id === 'hard', S.diff().id);
   S.setDifficulty('normal');
+});
+
+console.log('\n--- 究極階梯 ---');
+t('兩段階梯各有入口密技，段內每個加號一階', () => {
+  assert(S.ULTRA_MAX >= 12, '階數不夠：' + S.ULTRA_MAX);
+  assert(S.SECRET_DIFFS.length === S.ULTRA_MAX, '階數與難度清單對不上');
+  assert(S.ultraId(1) === 'ultra', '第 1 階要沿用舊 id，否則舊存檔會掉難度');
+  assert(S.ULTRA_LADDERS.map(l => l.code).join(',') === 'EXTRA,EXTREMELY', '入口密技不對');
+  assert(S.ultraEntry('EXTRA') === 1 && S.ultraEntry('EXTREMELY') === S.ASH_FROM, '入口階數不對');
+  let n = 0;
+  S.ULTRA_LADDERS.forEach(l => l.names.forEach((name, k) => {
+    const d = S.DIFFICULTY[S.ultraId(++n)];
+    assert(d.name === name, `第 ${n} 階的名字不對：${d.name}`);
+    assert(d.code === l.code + '+'.repeat(k), `第 ${n} 階的密技不對：${d.code}`);
+    assert(d.ultra === n && d.secret, `第 ${n} 階的標記不對`);
+  }));
+  assert(S.DIFFICULTY[S.ultraId(7)].code === 'EXTRA++++++', '究極段的頂應該是 EXTRA++++++');
+  assert(S.DIFFICULTY[S.ultraId(S.ASH_FROM)].code === 'EXTREMELY', '灰燼段的第一階應該是 EXTREMELY');
+  // 兩組密技不能互為前綴，否則打一組會誤觸另一組
+  assert(!'EXTREMELY'.startsWith('EXTRA') && !'EXTRA'.startsWith('EXTREMELY'), '兩組密技互為前綴');
+});
+
+t('灰燼段（EXTREMELY）比究極段更狠：秒數下限、學習卡、拼字提示都收掉', () => {
+  const fire = S.DIFFICULTY[S.ultraId(S.ASH_FROM - 1)];    // 究極段的頂
+  const ash = S.DIFFICULTY[S.ultraId(S.ASH_FROM)];         // 灰燼段的第一階
+  assert(!fire.ash && ash.ash, 'ash 標記不對');
+  assert(ash.time < fire.time, '灰燼段的時間沒有更緊');
+  assert(ash.xp > fire.xp && ash.coin > fire.coin, '灰燼段的獎勵沒有更高');
+  assert(fire.minSec === 5 && ash.minSec === 3, `秒數下限不對：${fire.minSec} / ${ash.minSec}`);
+  assert(!fire.noStudy && ash.noStudy, '灰燼段應該沒有學習卡');
+  assert(!fire.noHint && ash.noHint, '灰燼段的拼字題應該不給字數');
+  S.SECRET_DIFFS.slice(S.ASH_FROM - 1).forEach(id => {
+    const d = S.DIFFICULTY[id];
+    assert(d.pass === 1 && d.noItems && d.allKinds && d.chest === 'rainbow', `${d.name} 的規則沒有全開`);
+  });
+  const top = S.DIFFICULTY[S.ultraId(S.ULTRA_MAX)];
+  assert(top.xp >= 30 && top.coin >= 12, '最頂階的獎勵不夠：XP ×' + top.xp);
+});
+
+t('階梯一階比一階硬、也一階比一階好賺', () => {
+  const o = S.SECRET_DIFFS.map(id => S.DIFFICULTY[id]);
+  for (let k = 1; k < o.length; k++) {
+    assert(o[k].time < o[k - 1].time, `第 ${k + 1} 階的時間沒有更緊`);
+    assert(o[k].pass >= o[k - 1].pass, `第 ${k + 1} 階的通關門檻沒有更嚴`);
+    assert(o[k].xp > o[k - 1].xp, `第 ${k + 1} 階的 XP 沒有更高`);
+    assert(o[k].coin > o[k - 1].coin, `第 ${k + 1} 階的金幣沒有更高`);
+    assert(S.diffRank(o[k].id) > S.diffRank(o[k - 1].id), `第 ${k + 1} 階的排名沒有更高`);
+  }
+  assert(S.diffRank('ultra') > S.diffRank('extreme'), '第 1 階就該高於地獄');
+  assert(o[0].xp >= 2.5 && o[0].hearts === 1, '第 1 階的參數被改鬆了');
+  const top = o[o.length - 1];
+  assert(top.pass === 1, '最頂階應該是「全對才算通關」：' + top.pass);
+  assert(top.xp >= 10 && top.coin >= 5, '最頂階的獎勵不夠：XP ×' + top.xp);
+  assert(top.xp / S.DIFFICULTY.extreme.xp >= 6, '究極和公開難度的獎勵差距不夠大');
+});
+
+t('第 3 階起禁道具、第 4 階起題型開關失效', () => {
+  const at = n => S.DIFFICULTY[S.ultraId(n)];
+  assert(!at(1).noItems && !at(2).noItems, '前兩階不該禁道具');
+  for (let n = 3; n <= S.ULTRA_MAX; n++) assert(at(n).noItems, `第 ${n} 階應該禁道具`);
+  assert(!at(3).allKinds, '第 3 階還不該蓋掉題型開關');
+  for (let n = 4; n <= S.ULTRA_MAX; n++) assert(at(n).allKinds, `第 ${n} 階應該蓋掉題型開關`);
+
+  S.setUltra(2);
+  assert(S.itemsAllowed(), '第 2 階不該禁道具');
+  S.setUltra(4);
+  assert(!S.itemsAllowed(), '第 4 階沒有禁道具');
+  S.toggleKind('spell');                                   // 玩家自己把拼字關掉
+  assert(S.offKinds().includes('spell'), '沒有關掉拼字');
+  assert(S.kindOn('spell'), '第 4 階應該無視題型開關');
+  S.setUltra(0);
+  assert(!S.kindOn('spell'), '回到公開難度，玩家關掉的題型要恢復生效');
+  S.toggleKind('spell');
+});
+
+t('通關門檻跟著階數走，公開難度一律用 PASS_ACC', () => {
+  S.setDifficulty('normal');
+  assert(S.passAcc() === S.PASS_ACC, '公開難度的門檻被動到了');
+  S.setUltra(1);
+  assert(S.passAcc() > S.PASS_ACC, '第 1 階的門檻沒有變嚴');
+  S.setUltra(S.ULTRA_MAX);
+  assert(S.passAcc() === 1, '最頂階不是全對才過');
+  S.setUltra(0);
+});
+
+t('ultraUp 一階一階往上，但只爬得到「自己這一段」的頂', () => {
+  S.setUltra(0);
+  S.setDifficulty('hard');
+  assert(S.ultraUp() === 1 && S.diff().id === 'ultra', '第一次 up 沒有進第 1 階');
+  assert(S.ultraUp() === 2 && S.diff().name === S.ULTRA_NAMES[1], '沒有升到第 2 階');
+  for (let k = 0; k < 30; k++) S.ultraUp();
+  assert(S.ultraLevel() === S.ASH_FROM - 1,
+    `加號應該停在究極段的頂（第 ${S.ASH_FROM - 1} 階），不能撞進灰燼段：` + S.ultraLevel());
+  // 灰燼段要另外一組密技才進得去；進去之後加號一樣只爬到自己這一段的頂
+  S.setUltra(S.ultraEntry('EXTREMELY'));
+  assert(S.diff().ash, '沒有進到灰燼段');
+  for (let k = 0; k < 30; k++) S.ultraUp();
+  assert(S.ultraLevel() === S.ULTRA_MAX, '灰燼段沒有爬到最頂：' + S.ultraLevel());
+  S.setUltra(0);
+  assert(!S.secretDiff() && S.settings.difficulty === 'hard', '關掉之後沒回到挑戰：' + S.settings.difficulty);
+  S.setDifficulty('normal');
+});
+
+t('難度清單只列到爬到的那一階，還沒爬到的不劇透', () => {
+  S.setUltra(0);
+  assert(S.diffList().length === S.DIFF_ORDER.length, '沒解鎖卻列出究極');
+  S.setUltra(3);
+  assert(S.diffList().length === S.DIFF_ORDER.length + 3, '清單長度不對：' + S.diffList().join(','));
+  assert(!S.diffList().includes(S.ultraId(4)), '第 4 階還沒爬到就列出來了');
+  S.setDifficulty(S.ultraId(6));                           // 想用選的跳過去
+  assert(S.ultraLevel() === 3, '沒爬到的階被選單跳過去了：' + S.ultraLevel());
+  S.setDifficulty(S.ultraId(2));                           // 往回退是可以的
+  assert(S.ultraLevel() === 2, '不能退回低階');
+  S.setDifficulty('easy');
+  assert(S.diff().ultra === 2, '究極強制中卻被換成公開難度');
+  S.setUltra(0);
+});
+
+t('舊存檔只有布林值 secretDiff，換算成第 1 階', () => {
+  S.setUltra(0);
+  delete S.settings.ultraLv;
+  S.settings.secretDiff = true;
+  assert(S.ultraLevel() === 1 && S.secretDiff(), '舊存檔沒有換算成第 1 階');
+  S.settings.secretDiff = false;
+  assert(S.ultraLevel() === 0, '舊存檔關掉之後還是開著');
+});
+
+t('金幣跟著難度走：輕鬆最少、究極最頂最多', () => {
+  S.setUltra(0);
+  const at = id => { S.setDifficulty(id); return S.stageCoins(3, 5); };
+  const easy = at('easy'), extreme = at('extreme');
+  assert(easy < extreme, `輕鬆的金幣應該少於地獄：${easy} vs ${extreme}`);
+  S.setUltra(S.ULTRA_MAX);
+  const top = S.stageCoins(3, 5);
+  assert(top > extreme * 3, `最頂階的金幣不夠多：${top} vs ${extreme}`);
+  S.setUltra(0);
+  S.setDifficulty('normal');
+});
+
+t('究極階梯的寶箱保底：走得出來就不會只拿到木箱', () => {
+  const poor = { stars: 1, combo: 0, count: 5, retries: 1 };
+  assert(S.chestTier(Object.assign({}, poor, { diff: 'normal' })) === 'wood', '公開難度不該有保底');
+  assert(S.chestTier(Object.assign({}, poor, { diff: S.ultraId(1) })) === 'silver', '第 1 階保底銀箱');
+  assert(S.chestTier(Object.assign({}, poor, { diff: S.ultraId(3) })) === 'gold', '第 3 階保底金箱');
+  assert(S.chestTier(Object.assign({}, poor, { diff: S.ultraId(6) })) === 'rainbow', '第 6 階保底彩虹箱');
+  // 保底只往上抬，不會把本來更好的箱子壓下來
+  const great = { stars: 3, retries: 0, count: 20, combo: 20, diff: S.ultraId(1) };
+  assert(S.chestTier(great) === 'rainbow', '保底把好成績壓下去了');
 });
 
 console.log('\n--- 每日任務與金幣 ---');
@@ -1167,6 +1325,35 @@ t('挑戰任務領完會換下一個，不會一直掛著做完的', () => {
   d.quests = {}; d.questDone = {};
 });
 
+t('今日主打關只抽「還沒打完」的關，不會叫人重打已經 100% 的關', () => {
+  const s = S.load();
+  const snap = JSON.parse(JSON.stringify(s.words));
+  const t2 = '2026-07-30';
+  S.day(t2).quests = {};
+  try {
+    // 把第 1 級整級變成 100%（每個字都學會）
+    S.LETTERS.forEach(L => S.bucket(1, L).forEach(i => {
+      s.words[i] = Object.assign({ b: 0, due: null, s: 0, r: 0, wr: 0, fr: 0, fs: 0 }, s.words[i], { b: 3 });
+    }));
+    assert(S.LETTERS.every(L => !S.bucket(1, L).length || S.mapStat(1, L).full), '第 1 級沒有變成全滿');
+    const q = S.specialQuest(t2);
+    assert(q, '第 1 級打完了就不給主打關了');
+    assert(!S.mapStat(q.lv, q.letter).full, `抽到已經打完的關：第 ${q.lv} 級 ${q.letter}`);
+    assert(q.lv !== 1, '第 1 級全滿了卻還在第 1 級裡抽：' + q.lv);
+
+    // 領過的主打關要固定住：打完會讓那一關變 100%，這時候重抽會讓剛完成的任務憑空換掉
+    S.day(t2).quests[q.id] = true;
+    S.LETTERS.forEach(L => S.bucket(q.lv, L).forEach(i => {
+      s.words[i] = Object.assign({ b: 0, due: null, s: 0, r: 0, wr: 0, fr: 0, fs: 0 }, s.words[i], { b: 3 });
+    }));
+    const again = S.specialQuest(t2);
+    assert(again && again.id === q.id, `領過之後主打關被換掉了：${q.id} → ${again && again.id}`);
+  } finally {
+    s.words = snap;
+    S.day(t2).quests = {};
+  }
+});
+
 t('連續領獎會一路換下去（同一輪就把已達成的都發完）', () => {
   const t2 = '2026-07-29';
   const d = S.day(t2);
@@ -1312,9 +1499,32 @@ t('傳說成就要走完全圖／全三星，門檻跟著實際關卡數', () =>
 t('stats 提供成就要用的累積數字', () => {
   const st = S.stats();
   ['known', 'mastered', 'total', 'stars', 'clearedStages', 'threeStars', 'playableStages',
-    'chests', 'gems', 'hellClears', 'minutes', 'gramDone', 'freeCount'].forEach(k =>
+    'chests', 'gems', 'hellClears', 'ultraClears', 'exClears', 'minutes', 'gramDone', 'freeCount'].forEach(k =>
       assert(st[k] != null, '缺少欄位：' + k));
   assert(st.total === V.length, '總字數不對');
+});
+
+t('究極階梯的通關會被算進成就：地獄常客照算，另外有階梯專屬的兩個', () => {
+  const day = S.day();
+  const before = S.stats();
+  day.runs = (day.runs || []).concat([
+    { passed: true, diff: 'extreme' },
+    { passed: true, diff: S.ultraId(2) },
+    { passed: true, diff: S.ultraId(S.ULTRA_MAX) },
+    { passed: false, diff: S.ultraId(S.ULTRA_MAX) },        // 沒通關的不算
+  ]);
+  const st = S.stats();
+  assert(st.hellClears === before.hellClears + 3, '究極階梯的通關沒有算進「地獄以上」：' + st.hellClears);
+  assert(st.ultraClears === before.ultraClears + 2, '階梯通關次數不對：' + st.ultraClears);
+  assert(st.exClears === before.exClears + 1, '最頂階通關次數不對：' + st.exClears);
+
+  const ex = S.BADGES.find(b => b.id === 'exclear');
+  const u10 = S.BADGES.find(b => b.id === 'ultra10');
+  assert(ex && ex.tier === 'ultra', '缺少最頂階成就，或等級不對');
+  assert(u10 && u10.tier === 'legend', '缺少階梯常客成就，或等級不對');
+  assert(ex.test({ exClears: 0 }) === false && ex.test({ exClears: 1 }) === true, '最頂階成就的條件不對');
+  assert(u10.test({ ultraClears: 9 }) === false && u10.test({ ultraClears: 10 }) === true, '階梯常客的條件不對');
+  day.runs = day.runs.slice(0, -4);
 });
 
 t('新成就在條件達成時會解鎖（用假的統計驗證）', () => {
@@ -1670,7 +1880,156 @@ t('複習不再抽已經練起來的字（box 5 以上），可以在設定打�
   s.words = {};
 });
 
+console.log('\n--- 還沒學過的字（句子註解）---');
+t('句子裡沒學過的字挑得出來，變化形也認得', () => {
+  const none = () => false;
+  const got = Q.unknownIn('The government issued a warning about the storm.', { known: none });
+  const ws = got.map(w => w.w);
+  assert(ws.includes('issue'), '沒認出變化形 issued → issue：' + ws.join(','));
+  assert(ws.includes('government') && ws.includes('storm'), '漏掉句子裡的字：' + ws.join(','));
+  assert((Q.lookupForm('studies') || {}).w === 'study', 'studies → study 認不出來');
+  assert((Q.lookupForm('running') || {}).w === 'run', 'running → run 認不出來');
+  assert((Q.lookupForm('stopped') || {}).w === 'stop', 'stopped → stop 認不出來');
+  assert(Q.lookupForm('zzzzq') === null, '不存在的字卻查得到');
+});
+
+t('功能詞與第 1 級的字不註解 —— 那不是看不懂句子的原因', () => {
+  const none = () => false;
+  const got = Q.unknownIn('She has stopped running because the weather is terrible.', { known: none });
+  assert(got.length === 0, '把 the／she／because 這種字也註解出來了：' + got.map(w => w.w).join(','));
+  assert(Q.unknownIn('The the the', { known: none }).length === 0, '冠詞被註解了');
+  // 真的要看第 1 級也可以（minLv 是參數，不是寫死的）
+  assert(Q.unknownIn('the weather', { known: none, minLv: 1 }).some(w => w.w === 'weather'), 'minLv 放寬之後還是抓不到');
+});
+
+t('學會的字不再註解，指定要避開的字也不會出現（不然等於送答案）', () => {
+  const w = V.find(x => x.w === 'government');
+  const sent = 'The government issued a warning about the storm.';
+  assert(Q.unknownIn(sent, { known: () => false }).some(x => x.w === 'government'), '前提就不成立');
+  assert(!Q.unknownIn(sent, { known: i => i === w.i }).some(x => x.w === 'government'), '學會了還在註解');
+  // skip：克漏字的四個選項、中譯英要填的答案都必須避開
+  assert(!Q.unknownIn(sent, { known: () => false, skip: ['issued'] }).some(x => x.w === 'issue'),
+    '要避開的字被註解出來了 —— 這會直接把答案講掉');
+  assert(!Q.unknownIn(sent, { known: () => false, skip: ['issue'] }).some(x => x.w === 'issue'), '用原形避開失效');
+});
+
+t('註解最多幾個，難的排前面', () => {
+  const long = V.filter(x => x.lv >= 3).slice(0, 40).map(x => Q.base(x.w)).join(' ');
+  const got = Q.unknownIn(long, { known: () => false });
+  assert(got.length <= 6, '註解太多了：' + got.length);
+  const got3 = Q.unknownIn(long, { known: () => false, max: 3 });
+  assert(got3.length === 3, 'max 沒作用：' + got3.length);
+  for (let k = 1; k < got.length; k++) assert(got[k].lv <= got[k - 1].lv, '沒有把難的排前面');
+});
+
+console.log('\n--- 我的單字本 ---');
+t('加字要有英文和中文，例句會自動標出目標字（含變化形）', () => {
+  S.customs().slice().forEach(c => S.customRemove(c.id));
+  assert(S.customAdd({ w: '', tr: '沒有英文' }) === null, '沒有英文也加得進去');
+  assert(S.customAdd({ w: 'onlyword' }) === null, '沒有中文也加得進去');
+  const c = S.customAdd({ w: 'issue', tr: '議題；發布', p: 'n./v.', ex: 'The government issued a warning.', zh: '政府發布了警告。', gp: 'g3' });
+  assert(c && c.id, '正常的字加不進去');
+  assert(c.ex === 'The government {issued} a warning.', '例句沒有自動標出變化形：' + c.ex);
+  assert(S.markEx('I {like} it.', 'like') === 'I {like} it.', '已經標好的例句被動到了');
+  assert(S.markEx('Nothing here.', 'issue') === 'Nothing here.', '句子裡沒有那個字卻硬標了');
+  assert(S.customs().length === 1, '單字本數量不對');
+});
+
+t('填了什麼就出得了什麼：例句給句子題，文法點給文法題', () => {
+  const c = S.customs()[0];
+  assert(S.customKinds(c).join(',') === S.CUSTOM_KINDS.join(','), '欄位填滿卻不是全部題型都出得來');
+  const bare = S.customAdd({ w: 'happy', tr: '快樂的' });
+  const k = S.customKinds(bare);
+  assert(!k.includes('cloze') && !k.includes('trans') && !k.includes('order'), '沒例句卻出得了句子題');
+  assert(!k.includes('gram'), '沒挑文法點卻出得了文法題');
+  assert(k.includes('e2c') && k.includes('spell') && k.includes('free'), '只有英文＋中文時該有的題型少了');
+  // 例句填了但句子裡沒有那個字 → 一樣不算數（挖不出空格）
+  const bad = S.customAdd({ w: 'zebra', tr: '斑馬', ex: 'This sentence has no animal.' });
+  assert(!S.customKinds(bad).includes('cloze'), '例句裡沒有那個字卻出得了克漏字');
+  S.customRemove(bad.id);
+});
+
+t('單字本考卷：只出勾選的題型，每一題都掛得回是哪一個自訂字', () => {
+  const words = S.customs().map(c => S.customWord(c));
+  assert(words[0].i === null && words[0].cw === S.customs()[0].id, '自訂字的 i 應該是 null（它不在詞彙表裡）');
+  const kinds = ['e2c', 'spell', 'cloze', 'free'];
+  const qs = Q.bookSet(words, { kinds, n: 12 });
+  assert(qs.length === 12, '題數不對：' + qs.length);
+  qs.forEach(q => {
+    assert(q.cw, '題目沒有掛上自訂字 id');
+    assert(kinds.includes(q.bookKind), '出了沒勾的題型：' + q.bookKind);
+    assert(q.i == null, '自訂字的題目不該帶詞彙表索引');
+  });
+  // 文法題出自那個字挑的文法點
+  const g = Q.bookSet([words[0]], { kinds: ['gram'], n: 4 });
+  assert(g.length === 4 && g.every(q => q.kind === 'gmc' || q.kind === 'gfix'), '文法題出不來');
+  assert(g.every(q => q.gid === 'g3'), '文法題不是那個字挑的文法點');
+  // 出不了的題型不會硬出一題空白的
+  assert(Q.bookSet([S.customWord(S.customs()[1])], { kinds: ['cloze'] }, null).length === 0, '沒例句還是出了克漏字');
+});
+
+t('單字本有自己的間隔複習，完全不碰詞彙表的紀錄與統計', () => {
+  const before = Object.keys(S.load().words).length;
+  const knownBefore = S.stats().known;
+  const c = S.customs()[0];
+  S.customAnswer(c.id, true, 1);
+  const r = S.customRec(c.id);
+  assert(r.b === 1 && r.due === S.addDays(S.todayStr(), S.BOX_DAYS[1]), '排程不對：' + JSON.stringify(r));
+  assert(Object.keys(S.load().words).length === before, '自訂字寫進了詞彙表的紀錄');
+  assert(S.stats().known === knownBefore, '自訂字算進了「學會幾個字」');
+  S.customAnswer(c.id, false, 1);
+  assert(S.customRec(c.id).b === 0 && S.customRec(c.id).due === S.todayStr(), '答錯沒有掉回 box 0');
+  // 到期清單：沒練過的算到期
+  assert(S.customDue().some(x => x.id === c.id), '答錯的字不在今天到期清單裡');
+  const st = S.customStat();
+  assert(st.total === S.customs().length, '總數不對');
+});
+
+t('改字與刪字：紀錄跟著走，不留孤兒', () => {
+  const c = S.customs()[0];
+  S.customUpdate(c.id, { tr: '改過的意思', ex: 'They issue new rules.' });
+  assert(S.customFind(c.id).tr === '改過的意思', '改不動');
+  assert(/\{issue\}/.test(S.customFind(c.id).ex), '改例句之後沒有重新標記：' + S.customFind(c.id).ex);
+  S.customAnswer(c.id, true, 1);
+  assert(S.profile.customRec[c.id], '應該有紀錄');
+  assert(S.customRemove(c.id) === true, '刪不掉');
+  assert(!S.customFind(c.id), '刪完還找得到');
+  assert(!S.profile.customRec[c.id], '紀錄變成孤兒了');
+  S.customs().slice().forEach(x => S.customRemove(x.id));
+});
+
+t('練習題型至少要留一種，關不光', () => {
+  const cfg = S.customCfg();
+  assert(cfg.kinds.length, '預設沒有勾任何題型');
+  cfg.kinds.slice(1).forEach(k => S.toggleCustomKind(k));
+  assert(S.customCfg().kinds.length === 1, '沒有只剩一種：' + S.customCfg().kinds.join(','));
+  const last = S.customCfg().kinds[0];
+  S.toggleCustomKind(last);
+  assert(S.customCfg().kinds.length === 1, '最後一種也被關掉了');
+  S.setCustomCfg({ kinds: ['e2c', 'c2e', 'spell', 'cloze', 'trans', 'free'] });
+});
+
 console.log('\n--- 衝刺目標 ---');
+t('預設目標用天數訂：一週／一個月，字數＝正常速度讀得完的量', () => {
+  S.clearGoal();
+  assert(S.GOAL_PRESETS.map(p => p.days).join(',') === '7,30', '預設應該是一週與一個月：' + JSON.stringify(S.GOAL_PRESETS));
+  assert(S.GOAL_PACE >= 20 && S.GOAL_PACE <= 45, '一天的量不合理：' + S.GOAL_PACE);
+  const known = S.goalScope('all').known;
+  const p = S.goalPreset(7);
+  assert(p.until === S.addDays(S.todayStr(), 7), '期限不是從今天算起 7 天：' + p.until);
+  assert(p.target === known + 7 * S.GOAL_PACE, '一週的目標字數不對：' + p.target);
+  const g = S.setGoalPreset(30);
+  const st = S.goalStat();
+  assert(st.on && st.until === S.addDays(S.todayStr(), 30), '一個月的期限沒套用：' + st.until);
+  assert(st.perDay === S.GOAL_PACE, `每天要學的字應該剛好是 ${S.GOAL_PACE}：` + st.perDay);
+  assert(st.impossible === false, '正常速度的目標不該被判成不現實');
+  assert(g.target === st.target, 'goalPreset 回傳的目標和實際存進去的不一樣');
+  // 範圍剩不到那麼多字時，以範圍為準（不會訂出比總字數還多的目標）
+  const lv1 = S.goalPreset(365, 1);
+  assert(lv1.target === S.goalScope(1).total, '目標超過範圍總字數：' + lv1.target);
+  S.clearGoal();
+});
+
 t('目標會自己算「今天要學幾個字」＝剩下的字 ÷ 剩下的天數', () => {
   S.clearGoal();
   assert(S.goalStat().on === false, '一開始不該有目標');

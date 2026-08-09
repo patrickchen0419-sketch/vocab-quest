@@ -289,6 +289,7 @@ function walkStage(opts_) {
     const card = doc.querySelector('[data-act="nextCard"]');
     if (card) { seen.card++; fire('click', card); continue; }
     const q = curQ();
+    if (o.onQuestion) o.onQuestion(q);            // 想在「題目正畫在畫面上」時檢查什麼就掛這裡
     const opts = doc.querySelectorAll('.opt');
     const tiles = doc.querySelectorAll('[data-tile]');
     const inp = doc.querySelector('#ans');
@@ -1696,6 +1697,26 @@ t('答對／答錯的回饋會帶一句吐槽', () => {
   const r = window.__run(); if (r) r.inStage = false;
 });
 
+t('倒數計時不是設定：設定頁沒有開關，關卡裡照樣計時', () => {
+  goHome();
+  click('[data-go="settings"]');
+  assert(!doc.querySelector('[data-chk="timer"]'), '設定頁還留著倒數計時開關');
+  assert(!has('每題倒數計時'), '設定頁還寫著「每題倒數計時」');
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));
+  S.settings.timer = false;                        // 舊存檔可能還留著這個欄位，不該有作用
+  S.setDifficulty('easy');
+  goHome();
+  click('[data-maplv="1"]');
+  click('[data-mapletter="1:A"]');
+  click('[data-startstage="1:A:5"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  assert(doc.querySelector('#timer'), '關卡裡沒有計時器：' + txt().slice(0, 300));
+  delete S.settings.timer;
+  const r = window.__run(); if (r) r.inStage = false;
+  goHome();
+});
+
 t('設定頁可以關掉迷因，關掉後畫面就不出現', () => {
   goHome();
   click('[data-go="settings"]');
@@ -1766,15 +1787,19 @@ t('沒訂目標時首頁給快速設定鈕', () => {
   S.clearGoal();
   goHome();
   assert(has('還沒訂衝刺目標'), '沒有目標提示卡：' + txt().slice(0, 200));
-  assert(doc.querySelector('[data-goalpreset="lv3"]'), '沒有第 3 級預設鈕');
-  assert(doc.querySelector('[data-goalpreset="all"]'), '沒有全書預設鈕');
+  // 預設鈕是「幾天」，不是「這個範圍總共幾個字」—— 訂得完才會想做完
+  assert(doc.querySelector('[data-goalpreset="7"]'), '沒有一週預設鈕');
+  assert(doc.querySelector('[data-goalpreset="30"]'), '沒有一個月預設鈕');
+  assert(!doc.querySelector('[data-goalpreset="all"]'), '還留著「全書 6012 字」這種訂不完的預設');
 });
 
-t('按下預設鈕就訂好目標，首頁顯示今天要學幾個字', () => {
-  click('[data-goalpreset="lv3"]');
+t('按下預設鈕就訂好目標，期限是從今天算起、字數是正常讀得完的量', () => {
+  const before = S.goalScope('all').known;
+  click('[data-goalpreset="30"]');
   const g = S.goalStat();
-  assert(g.on && g.scope === 3 && g.target === 1002, '目標沒設定好：' + JSON.stringify(g));
-  assert(g.until === '2026-08-10', '期限不對：' + g.until);
+  assert(g.on && g.until === S.addDays(S.todayStr(), 30), '期限不是從今天算起 30 天：' + g.until);
+  assert(g.target === before + 30 * S.GOAL_PACE, '目標字數不是一天 ' + S.GOAL_PACE + ' 字算出來的：' + g.target);
+  assert(g.perDay === S.GOAL_PACE, '每天要學的字數不對：' + g.perDay);
   assert(has('衝刺目標'), '首頁沒有目標卡');
   assert(has('今天還要學幾個字') || has('今天的量做完了'), '沒顯示今天的配額：' + txt().slice(0, 300));
   assert(has('剩') && has('天'), '沒顯示倒數天數');
@@ -2297,6 +2322,147 @@ t('究極模式的關卡：血條是火、計時器多一條引信', () => {
   S.setSecretDiff(false);
 });
 
+t('EXTRA 後面每打一個 + 就再上一階，一口氣打完直接站到頂', () => {
+  S.setUltra(0);
+  S.setDifficulty('normal');
+  goHome();
+  type('extra');
+  assert(S.ultraLevel() === 1, 'EXTRA 沒有進第 1 階');
+  press('+'); press('+');
+  assert(S.ultraLevel() === 3, '兩個加號沒有升到第 3 階：' + S.ultraLevel());
+  assert(S.diff().id === S.ultraId(3) && S.settings.difficulty === S.ultraId(3), '難度沒跟著換');
+  const close = doc.querySelector('[data-close="ok"]');
+  if (close) fire('click', close);
+  goHome();
+  assert(doc.documentElement.attrs['data-ultra'] === '3', 'data-ultra 沒有寫成階數：' + doc.documentElement.attrs['data-ultra']);
+  assert(has('究極第 3'), '首頁沒說明現在在第幾階：' + txt().slice(0, 400));
+  // 一路打到這一段的頂之後再按加號也不會爆掉，而且不會撞進灰燼段
+  for (let k = 0; k < 12; k++) press('+');
+  assert(S.ultraLevel() === S.ASH_FROM - 1, '加號應該停在究極段的頂：' + S.ultraLevel());
+  assert(S.passAcc() === 1, '究極段頂階的通關門檻不是 100%');
+});
+
+t('EXTREMELY 直接跳進灰燼段：沒有學習卡、拼字不給字數、秒數下限降到 3 秒', () => {
+  S.setUltra(0);
+  S.setDifficulty('normal');
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));
+  goHome();
+  type('extremely');
+  assert(S.ultraLevel() === S.ASH_FROM, 'EXTREMELY 沒有跳到灰燼段：' + S.ultraLevel());
+  assert(S.diff().ash && S.diff().noStudy && S.diff().noHint, '灰燼段的規則沒有生效');
+  assert(has('灰 燼'), '沒有灰燼段的進場演出：' + txt().slice(-400));
+  assert(has('ash'), '進場演出沒有掛上灰燼的樣式');
+  press('+');
+  assert(S.ultraLevel() === S.ASH_FROM + 1, '灰燼段裡的加號沒作用：' + S.ultraLevel());
+  const close = doc.querySelector('[data-close="ok"]');
+  if (close) fire('click', close);
+  goHome();
+  assert(doc.documentElement.attrs['data-ultra'] === String(S.ASH_FROM + 1), 'data-ultra 不是階數');
+
+  // 進關卡：直接開始作答（沒有學習卡），而且拼字題不給字數
+  // 出題是隨機的，所以重開幾次直到這一份考卷裡真的有拼字題，再走完它
+  let hasSpell = false, tries = 0;
+  while (!hasSpell && tries++ < 15) {
+    goHome();
+    click('[data-maplv="1"]');
+    click('[data-mapletter="1:A"]');
+    click('[data-startstage="1:A:10"]');
+    assert(!doc.querySelector('[data-act="nextCard"]'), '灰燼段還是出了學習卡');
+    assert(doc.querySelector('#timer'), '沒有直接進到作答畫面：' + txt().slice(0, 300));
+    const r = window.__run();
+    hasSpell = !!(r && r.qs.some(q => q.kind === 'spell'));
+    if (!hasSpell && r) r.inStage = false;
+  }
+  assert(hasSpell, '重開 15 次都沒抽到拼字題');
+  let sawSpell = false;
+  walkStage({
+    correct: true,
+    onQuestion: q => {
+      if (!q || q.kind !== 'spell' || sawSpell) return;
+      sawSpell = true;
+      assert(!has('個字母）'), '灰燼段的拼字題還在講幾個字母：' + txt().slice(0, 400));
+      assert(!has(q.prompt.hint), '灰燼段的拼字題還在畫底線');
+      assert(has('連字數都不給'), '沒有講清楚這一階不給字數');
+    },
+  });
+  assert(sawSpell, '走完整關都沒看到拼字題');
+  const r2 = window.__run(); if (r2) r2.inStage = false;
+  S.setUltra(0);
+  goHome();
+});
+
+t('再打一次 EXTREMELY 會整個關掉，不是掉回究極段', () => {
+  S.setUltra(0);
+  goHome();
+  type('extremely');
+  assert(S.ultraLevel() === S.ASH_FROM, '沒進灰燼段');
+  const close = doc.querySelector('[data-close="ok"]');
+  if (close) fire('click', close);
+  goHome();
+  type('extremely');
+  assert(!S.secretDiff(), 'EXTREMELY 關不掉：' + S.ultraLevel());
+  assert(!doc.documentElement.attrs['data-ultra'], 'data-ultra 沒有拿掉');
+  // 站在灰燼段時打 EXTRA（更下面那一段的密技）也是關掉，不是掉回第 1 階
+  type('extremely');
+  assert(S.ultraLevel() === S.ASH_FROM, '沒再進灰燼段');
+  const c2 = doc.querySelector('[data-close="ok"]');
+  if (c2) fire('click', c2);
+  goHome();
+  type('extra');
+  assert(!S.secretDiff(), '在灰燼段打 EXTRA 應該是關掉：' + S.ultraLevel());
+  goHome();
+});
+
+t('加號鏈中間插別的鍵就斷掉 —— 隨手按到 + 不會偷偷升階', () => {
+  S.setUltra(1);
+  goHome();
+  press('Q');                                      // 不相干的一鍵：鏈已經斷了
+  press('+'); press('+');
+  assert(S.ultraLevel() === 1, '斷鏈之後還是升階了：' + S.ultraLevel());
+  type('extra');                                   // 這一次是「關掉」，後面的 + 不該又點著
+  assert(!S.secretDiff(), 'EXTRA 沒關掉');
+  press('+');
+  assert(!S.secretDiff(), '關掉之後按 + 又開起來了');
+});
+
+t('第 3 階起不准帶道具：選字數畫面直接講規則，刪去法也按不到', () => {
+  S.setUltra(1);
+  S.addCoins(5000);
+  S.buy('heart'); S.buy('fifty');
+  goHome();
+  click('[data-maplv="1"]');
+  click('[data-mapletter="1:A"]');
+  assert(has('這一關要用道具嗎'), '第 1 階應該還能帶道具：' + txt().slice(0, 300));
+  S.setUltra(3);
+  goHome();
+  click('[data-maplv="1"]');
+  click('[data-mapletter="1:A"]');
+  assert(has('這一階不准帶道具'), '第 3 階沒有擋下道具：' + txt().slice(0, 300));
+  click('[data-startstage="1:A:5"]');
+  let guard = 0;
+  while (doc.querySelector('[data-act="nextCard"]') && guard++ < 40) click('[data-act="nextCard"]');
+  assert(!doc.querySelector('[data-act="fifty"]'), '禁道具的階數還看得到刪去法');
+  S.setUltra(0);
+  goHome();
+});
+
+t('管理員面板可以直接跳到任何一階', () => {
+  S.setUltra(0);
+  S.setDifficulty('normal');
+  goHome();
+  konami();
+  click('[data-atab="cheat"]');
+  assert(has('究極階梯'), '面板沒有階梯區');
+  click('[data-aultra="5"]');
+  assert(S.ultraLevel() === 5 && S.diff().id === S.ultraId(5), '面板跳不到第 5 階：' + S.ultraLevel());
+  click('[data-a="close"]');                       // 面板留著會把後面的密技測試全部吃掉
+  const close = doc.querySelector('[data-close="ok"]');
+  if (close) fire('click', close);                 // 關進場演出（這一下會把版面整個重畫）
+  S.setUltra(0);
+  assert(S.settings.difficulty === 'normal', '關掉之後沒回到標準');
+  goHome();
+});
+
 t('在輸入框裡打 EXTRA 不會誤觸密技', () => {
   S.setSecretDiff(false);
   const box = doc.createElement('textarea');
@@ -2387,7 +2553,7 @@ t('作弊選單：面板裡三個開關都能切，也能解鎖究極', () => {
   goHome();
   konami();
   click('[data-atab="cheat"]');
-  assert(has('隱藏難度') && has('外掛'), '作弊分頁內容不對');
+  assert(has('究極階梯') && has('外掛'), '作弊分頁內容不對');
   click('[data-acheat="noTimer"]');
   assert(S.cheat('noTimer'), '面板開不了時間暫停');
   click('[data-acheat="noTimer"]');
@@ -2402,6 +2568,154 @@ t('作弊選單：面板裡三個開關都能切，也能解鎖究極', () => {
 });
 
 // ================= 跨裝置同步 =================
+console.log('\n--- 我的單字本 ---');
+/** 填單字本的表單（欄位不是勾選框，要直接塞 value）。 */
+function bookFill(o) {
+  const set = (sel, v) => { const el = doc.querySelector(sel); if (el) el.value = v == null ? '' : v; };
+  set('#bkw', o.w); set('#bktr', o.tr); set('#bkp', o.p);
+  set('#bkph', o.ph); set('#bkex', o.ex); set('#bkzh', o.zh); set('#bkgp', o.gp);
+}
+
+t('首頁有單字本入口，空的時候也把整個機制講清楚', () => {
+  S.customs().slice().forEach(c => S.customRemove(c.id));
+  goHome();
+  assert(doc.querySelector('[data-go="book"]'), '首頁沒有單字本入口');
+  click('[data-go="book"]');
+  assert(has('我的單字本'), '沒進到單字本頁：' + txt().slice(0, 200));
+  assert(has('單字本還是空的'), '空的時候沒有提示');
+  assert(doc.querySelector('#bkw') && doc.querySelector('#bktr'), '沒有英文／中文欄位');
+  assert(doc.querySelector('#bkex') && doc.querySelector('#bkgp'), '沒有例句／文法點欄位');
+  assert(doc.querySelectorAll('[data-bkkind]').length === S.CUSTOM_KINDS.length, '題型選項數不對');
+});
+
+t('英文或中文沒填就加不進去，會講原因', () => {
+  bookFill({ w: 'issue' });
+  click('[data-act="bkAdd"]');
+  assert(!S.customs().length, '只填英文也加進去了');
+  assert(has('英文和中文都要填'), '沒有講原因：' + txt().slice(-300));
+});
+
+t('加一個字：填了例句就自動標出目標字，題型跟著解鎖', () => {
+  bookFill({
+    w: 'issue', tr: '議題；發布', p: 'n./v.',
+    ex: 'The government issued a warning.', zh: '政府發布了警告。', gp: 'g3',
+  });
+  click('[data-act="bkAdd"]');
+  const c = S.customs()[0];
+  assert(c && c.w === 'issue', '沒加進去');
+  assert(c.ex === 'The government {issued} a warning.', '例句沒自動標記：' + c.ex);
+  assert(has('issue'), '清單裡看不到這個字');
+  assert(has('例句克漏字') && has('文法題'), '題型沒有跟著解鎖：' + txt().slice(0, 600));
+  assert(has('單字本字數') && has('今天到期'), '沒有總覽數字');
+});
+
+t('只填英文＋中文的字，句子題與文法題不會出現在它身上', () => {
+  bookFill({ w: 'brisk', tr: '輕快的' });
+  click('[data-act="bkAdd"]');
+  const c = S.customs().find(x => x.w === 'brisk');
+  assert(c, '沒加進去');
+  const k = S.customKinds(c);
+  assert(!k.includes('cloze') && !k.includes('gram'), '沒填例句／文法點卻解鎖了：' + k.join(','));
+});
+
+t('改字與刪字都在同一個表單裡完成', () => {
+  const c = S.customs().find(x => x.w === 'brisk');
+  click(`[data-bkedit="${c.id}"]`);
+  assert(has('修改「brisk」'), '沒有進到修改模式：' + txt().slice(0, 400));
+  assert(doc.querySelector('#bkw').attrs.value === 'brisk', '表單沒有帶入原本的值');
+  bookFill({ w: 'brisk', tr: '輕快的；活潑的' });
+  click('[data-act="bkSave"]');
+  assert(S.customFind(c.id).tr === '輕快的；活潑的', '改不動');
+  assert(!has('修改「brisk」'), '存完還留在修改模式');
+  click(`[data-bkdel="${c.id}"]`);
+  assert(!S.customFind(c.id), '刪不掉');
+  assert(S.customs().length === 1, '刪錯了：' + S.customs().length);
+});
+
+t('題型可以自己勾，至少留一種', () => {
+  const cfg = S.customCfg();
+  const first = cfg.kinds[0];
+  click(`[data-bkkind="${first}"]`);
+  assert(!S.customCfg().kinds.includes(first), '關不掉');
+  click(`[data-bkkind="${first}"]`);
+  assert(S.customCfg().kinds.includes(first), '開不回來');
+  S.setCustomCfg({ kinds: ['e2c'] });
+  click('[data-bkkind="e2c"]');
+  assert(S.customCfg().kinds.length === 1, '最後一種也關掉了');
+});
+
+t('開始練習：出的是單字本的字，答完寫進單字本自己的複習排程', () => {
+  S.setUltra(0);
+  S.setDifficulty('easy');
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));
+  S.setCustomCfg({ kinds: ['e2c', 'c2e', 'spell', 'cloze', 'trans'], n: 5 });
+  const c = S.customs()[0];
+  const wordsBefore = Object.keys(S.load().words).length;
+  goHome();
+  click('[data-go="book"]');
+  click('[data-act="bkStart"]');
+  const r = window.__run();
+  assert(r && r.inStage, '沒有進到關卡：' + txt().slice(0, 300));
+  assert(r.qs.length === 5, '題數不對：' + r.qs.length);
+  assert(r.qs.every(q => q.cw === c.id), '出到了單字本以外的字');
+  walkStage({ correct: true });
+  assert(S.customRec(c.id).s >= 5, '作答沒有寫進單字本的紀錄：' + JSON.stringify(S.customRec(c.id)));
+  assert(S.customRec(c.id).b >= 1, '全對卻沒有往上升 box');
+  assert(Object.keys(S.load().words).length === wordsBefore, '自訂字寫進了詞彙表的紀錄');
+  const log = S.day().log.filter(x => x.cw === c.id);
+  assert(log.length >= 5, '作答紀錄沒有記下來');
+  assert(log.every(x => x.i == null && x.w === c.w), '紀錄裡沒有留下字面：' + JSON.stringify(log[0]));
+});
+
+t('句子題會把「還沒學過的字」註解在題目下面，但不會註解到答案', () => {
+  S.customs().slice().forEach(x => S.customRemove(x.id));
+  S.setUltra(0);
+  S.setDifficulty('easy');
+  S.CHEAT_KEYS.forEach(k => S.setCheat(k, false));
+  // 例句裡塞幾個沒學過的字（政府／暴風雨／警告），目標字是 issue
+  const c = S.customAdd({
+    w: 'issue', tr: '議題；發布',
+    ex: 'The government issued a warning about the storm.', zh: '政府針對暴風雨發布了警告。',
+  });
+  ['government', 'storm', 'warn', 'issue'].forEach(x => {
+    const w = V.find(v => v.w === x);
+    if (w) delete S.load().words[w.i];                // 確定是「沒學過」的狀態
+  });
+  S.setCustomCfg({ kinds: ['order'], n: 1 });
+  goHome();
+  click('[data-go="book"]');
+  click('[data-act="bkStart"]');
+  assert(has('還沒學過的字'), '句子題沒有註解：' + txt().slice(0, 700));
+  assert(has('government') && has('政府'), '註解裡沒有那個沒學過的字：' + txt().slice(0, 700));
+  assert(!has('那</b>'), '連冠詞那種功能詞都註解出來了');
+  let r = window.__run(); if (r) r.inStage = false;
+
+  // 中譯英填空：要填的答案絕對不能出現在註解裡
+  S.setCustomCfg({ kinds: ['trans'], n: 1 });
+  goHome();
+  click('[data-go="book"]');
+  click('[data-act="bkStart"]');
+  const q = curQ();
+  assert(q && q.kind === 'trans', '沒出到中譯英：' + (q && q.kind));
+  const box = txt().split('glossbox')[1] || '';
+  assert(box, '中譯英沒有註解區：' + txt().slice(0, 700));
+  assert(!box.split('</div>')[0].includes('>issue<'), '註解把要填的答案講出來了：' + box.slice(0, 300));
+  r = window.__run(); if (r) r.inStage = false;
+  S.customRemove(c.id);
+  S.setCustomCfg({ kinds: ['e2c', 'c2e', 'spell', 'cloze', 'trans', 'free'], n: 12 });
+  S.setDifficulty('normal');
+  goHome();
+});
+
+t('單字本是空的就不能按開始練習', () => {
+  S.customs().slice().forEach(x => S.customRemove(x.id));
+  goHome();
+  click('[data-go="book"]');
+  assert(doc.querySelector('[data-act="bkStart"]').disabled, '空的時候還按得下去');
+  S.setDifficulty('normal');
+  goHome();
+});
+
 console.log('\n--- 跨裝置同步 ---');
 t('設定頁有同步區，可以產生同步碼', () => {
   goHome();

@@ -6,7 +6,7 @@
   const BOX_DAYS = [0, 1, 3, 7, 14, 30, 60];   // Leitner：box 0 當天重練，之後 1/3/7/14/30/60 天
   const MAX_BOX = BOX_DAYS.length - 1;
 
-  const SCHEMA = 2;                 // 改動設定結構時 +1，舊存檔會走 migrate()
+  const SCHEMA = 3;                 // 改動設定結構時 +1，舊存檔會走 migrate()
   /* stageQuestions：一關幾題。applyPerStage / gramPerStage：一關保留給「句子運用」與「文法」的名額。
      sentRate：有例句的字出句子題的比重（60 = 預設；調高就更常考句子而不是四選一）。 */
   const COUNT_DEFAULTS = {
@@ -65,7 +65,7 @@
       lastStudy: null,
       badges: [],
       settings: Object.assign({}, COUNT_DEFAULTS, {
-        difficulty: 'normal', timer: true, instantFeedback: false, sfx: true, tts: true, speechRate: 75,
+        difficulty: 'normal', instantFeedback: false, sfx: true, tts: true, speechRate: 75,
         memes: true, keyBar: true, reviewMastered: false, sweepCheck: false, sweepBatch: 24, offKinds: [],
         secretDiff: false,                                        // 究極難度解鎖了沒
         cheats: { god: false, noTimer: false, xray: false },      // 作弊開關（管理員面板／密技切換）
@@ -77,45 +77,136 @@
 
   /* 關卡難度。和「題數」是兩個獨立旋鈕：難度管血量／時間／題型難易／XP 倍率，
      題數（newPerDay / reviewCap / applyPerDay）管一次要做多少。
-     tierShift 會把出題偏向推向更難的題型（+1 → 更常考拼字與詞形變化而不是四選一）。 */
+     tierShift 會把出題偏向推向更難的題型（+1 → 更常考拼字與詞形變化而不是四選一）。
+
+     公開的四檔刻意做得寬鬆、獎勵也普通：那是「每天都要來一趟」的節奏，不是拿來拚的，
+     所以血給得多、時間給得夠，XP 也就只有一點點（連標準都不到 ×1）。
+     真正的難度與真正的獎勵全部搬到下面那條隱藏的究極階梯上 —— 要獎勵就自己爬上去。 */
   const DIFFICULTY = {
-    easy:    { id: 'easy',    name: '輕鬆', hearts: 8, time: 1.6,  tierShift: -1, xp: 0.8, desc: '血多、時間寬、以認得出來為主' },
-    normal:  { id: 'normal',  name: '標準', hearts: 5, time: 1.0,  tierShift: 0,  xp: 1.0, desc: '預設節奏' },
-    hard:    { id: 'hard',    name: '挑戰', hearts: 3, time: 0.75, tierShift: 1,  xp: 1.3, desc: '時間縮短、多考拼得出來' },
-    extreme: { id: 'extreme', name: '地獄', hearts: 1, time: 0.55, tierShift: 1,  xp: 1.6, desc: '一顆心、時間很緊、XP 加成最高' },
-    /* 隱藏難度（要解鎖才看得到）。tierShift 2 的意思是「連剛學的新字都直接考最難的題型」——
-       地獄只是把時間壓短，究極是連題型都不再放水。 */
-    ultra:   { id: 'ultra',   name: '究極', hearts: 1, time: 0.45, tierShift: 2,  xp: 2.5, secret: true, desc: '隱藏難度：一顆心、時間再砍一半、新字也直接考拼字與詞形變化' },
+    easy:    { id: 'easy',    name: '輕鬆', hearts: 10, time: 2.0,  tierShift: -1, xp: 0.6,  coin: 0.6,  desc: '血很多、時間很寬、以認得出來為主；獎勵也是最少的' },
+    normal:  { id: 'normal',  name: '標準', hearts: 7,  time: 1.3,  tierShift: 0,  xp: 0.85, coin: 0.85, desc: '預設節奏：血夠用、時間夠想，獎勵普通' },
+    hard:    { id: 'hard',    name: '挑戰', hearts: 5,  time: 0.95, tierShift: 1,  xp: 1.1,  coin: 1.1,  desc: '時間縮短、多考拼得出來' },
+    extreme: { id: 'extreme', name: '地獄', hearts: 3,  time: 0.7,  tierShift: 1,  xp: 1.4,  coin: 1.3,  desc: '三顆心、時間很緊；公開難度裡獎勵最高的一檔' },
   };
   const DIFF_ORDER = ['easy', 'normal', 'hard', 'extreme'];
-  const SECRET_DIFFS = ['ultra'];
-  /** 難度選單：隱藏難度解鎖之後才會排在最後面。 */
-  function diffList() { return secretDiff() ? DIFF_ORDER.concat(SECRET_DIFFS) : DIFF_ORDER.slice(); }
-  /** 究極模式開著＝強制究極，其他難度按不動（要換就先關掉究極）。 */
+
+  /* ---- 究極階梯（隱藏，要解鎖才看得到）----------------------------------
+     一條連續的階梯，用兩組密技分段解鎖：
+       EXTRA（＋加號）      第 1–7 階　「字典正在燒」
+       EXTREMELY（＋加號）  第 8–12 階「字典已經燒完了，只剩灰」
+     打完密技之後，每多打一個「＋」就再往上一階；一口氣打完加號就直接站到那一段的頂。
+     致敬《星之卡比 新星同盟》的「究極選擇」：同一批關卡，一階比一階狠，獎勵也一階比一階誇張。
+
+     一顆心從第 1 階就用掉了，所以往上加的是別的東西：
+       time      每題時間再砍
+       pass      通關的正確率門檻往上抬（第 7 階起＝全對才算通關）
+       noItems   不准帶道具進場（連復活石都不能用）
+       allKinds  題型開關失效 —— 你關掉的拼字、聽力，這裡全部照考
+       minSec    每題秒數的下限從 5 秒降到 3 秒（灰燼段才有，不然時間倍率會被下限吃掉）
+       noStudy   新字不再出學習卡 —— 沒得先看，直接考
+       noHint    拼字題連「幾個字母」都不告訴你
+     數值一律用公式算、名字一律用清單，不手寫參數：
+     以後要再加一段階梯，只要在 ULTRA_LADDERS 後面 push 一組（密技＋名字）。 */
+  const ULTRA_LADDERS = [
+    { code: 'EXTRA', names: ['究極', '究極・熾', '究極・灼熱', '究極・熔核', '究極・恆星', '究極・焚魂', '究極・焚魂 EX'] },
+    { code: 'EXTREMELY', names: ['灰燼', '灰燼・無光', '灰燼・寂滅', '灰燼・虛空', '灰燼 Ω'] },
+  ];
+  const ULTRA_NAMES = ULTRA_LADDERS.reduce((a, l) => a.concat(l.names), []);
+  const ULTRA_MAX = ULTRA_NAMES.length;
+  const ASH_FROM = ULTRA_LADDERS[0].names.length + 1;        // 第 8 階起是灰燼段
+  /** 第 1 階沿用舊的 id 'ultra'，舊存檔才不會在升級後掉到別的難度去。 */
+  const ultraId = n => (n <= 1 ? 'ultra' : 'ultra' + n);
+  /** 這一階的密技：那一段的密技字串，後面接「在這一段裡排第幾個」個加號。 */
+  function ultraCode(n) {
+    let k = Math.max(1, n);
+    for (const l of ULTRA_LADDERS) {
+      if (k <= l.names.length) return l.code + '+'.repeat(k - 1);
+      k -= l.names.length;
+    }
+    return ULTRA_LADDERS[ULTRA_LADDERS.length - 1].code;
+  }
+  /** 每一段的第一階是第幾階（打密技直接跳到這裡）。 */
+  function ultraEntry(code) {
+    let at = 1;
+    for (const l of ULTRA_LADDERS) {
+      if (l.code === code) return at;
+      at += l.names.length;
+    }
+    return 0;
+  }
+  const SECRET_DIFFS = [];
+  for (let n = 1; n <= ULTRA_MAX; n++) {
+    const r2 = v => Math.round(v * 100) / 100, r1 = v => Math.round(v * 10) / 10;
+    const ash = n >= ASH_FROM;
+    const time = r2(0.45 * Math.pow(0.88, n - 1));           // 0.45 → 0.11
+    const pass = Math.min(1, r2(0.92 + (n - 1) * 0.08 / (ASH_FROM - 2)));   // 0.92 →（第 7 階）1.00
+    const xp = r1(2.5 * Math.pow(1.26, n - 1));              // ×2.5 → ×32
+    const coin = r1(1.6 * Math.pow(1.21, n - 1));            // ×1.6 → ×13
+    const noItems = n >= 3, allKinds = n >= 4;
+    const id = ultraId(n), code = ultraCode(n);
+    DIFFICULTY[id] = {
+      id, name: ULTRA_NAMES[n - 1], ultra: n, ash, secret: true, code,
+      hearts: 1, time, tierShift: 2, pass, xp, coin, noItems, allKinds,
+      minSec: ash ? 3 : 5, noStudy: ash, noHint: ash,
+      chest: n >= 6 ? 'rainbow' : n >= 3 ? 'gold' : 'silver',
+      desc: `${ash ? '灰燼' : '究極'}第 ${n} 階（${code}）：一顆心 ・ 時間 ×${time} ・ 通關門檻 ${Math.round(pass * 100)}%`
+        + ` ・ XP ×${xp} ・ 金幣 ×${coin}`
+        + (noItems ? ' ・ 不准帶道具' : '') + (allKinds ? ' ・ 題型開關失效' : '')
+        + (ash ? ' ・ 沒有學習卡 ・ 拼字不給字數' : ''),
+    };
+    SECRET_DIFFS.push(id);
+  }
+
+  /** 難度選單：究極階梯只列到你目前爬到的那一階（還沒爬到的不劇透）。 */
+  function diffList() { return DIFF_ORDER.concat(SECRET_DIFFS.slice(0, ultraLevel())); }
+  /** 究極模式開著＝強制究極，公開的四檔按不動（要換就先關掉究極）。 */
   function diffForced() { return secretDiff(); }
-  /** 難度的「硬度排名」：隱藏難度一律排在公開的四檔之上。 */
+  /** 難度的「硬度排名」：究極階梯一律排在公開的四檔之上，而且階越高排越後面。 */
   function diffRank(id) {
     const k = DIFF_ORDER.indexOf(id);
-    return k >= 0 ? k : (DIFFICULTY[id] ? DIFF_ORDER.length : 0);
+    if (k >= 0) return k;
+    const d = DIFFICULTY[id];
+    return d && d.ultra ? DIFF_ORDER.length + d.ultra - 1 : 0;
   }
-  function secretDiff() { return !!load().profile.settings.secretDiff; }
-  /* 究極不是「多一個選項」，是一個模式：打開就強制究極，別的難度全部按不動。
+  /** 目前在究極的第幾階；0 ＝ 沒開。舊存檔只有一個布林值，換算成第 1 階。 */
+  function ultraLevel() {
+    const c = load().profile.settings;
+    const n = +c.ultraLv || (c.secretDiff ? 1 : 0);
+    return Math.max(0, Math.min(ULTRA_MAX, Math.round(n)));
+  }
+  function secretDiff() { return ultraLevel() > 0; }
+  /* 究極不是「多一個選項」，是一個模式：打開就強制究極，公開的四檔全部按不動。
      所以打開時要記住原本玩的是哪一檔（diffBefore），關掉才回得去 ——
      否則會變成「玩過一次究極，就再也回不到自己原本的節奏」。 */
-  function setSecretDiff(on) {
-    const c = load().profile.settings, was = !!c.secretDiff;
-    c.secretDiff = !!on;
-    if (c.secretDiff && !was) {
-      c.diffBefore = c.difficulty;
-      c.difficulty = 'ultra';
-    } else if (!c.secretDiff && was) {
+  function setUltra(n) {
+    const c = load().profile.settings, was = ultraLevel();
+    const lv = Math.max(0, Math.min(ULTRA_MAX, Math.round(+n || 0)));
+    c.ultraLv = lv;
+    c.secretDiff = lv > 0;                    // 舊欄位一起維護（同步過來的舊存檔還在看它）
+    if (lv) {
+      if (!was) c.diffBefore = c.difficulty;
+      c.difficulty = ultraId(lv);
+    } else if (was) {
       const back = c.diffBefore;
       c.difficulty = (DIFFICULTY[back] && !DIFFICULTY[back].secret) ? back : 'normal';
       delete c.diffBefore;
     }
     save(true);
-    return c.secretDiff;
+    return lv;
   }
+  /** 第 n 階所在那一段的最後一階是第幾階。 */
+  function ultraSegEnd(n) {
+    let at = 0;
+    for (const l of ULTRA_LADDERS) { at += l.names.length; if (n <= at) return at; }
+    return ULTRA_MAX;
+  }
+  /* 再往上一階。加號只能爬到「自己這一段」的頂 ——
+     不然打一排加號就會撞進下一段，下一段的入口密技就白設計了。 */
+  function ultraUp() {
+    const lv = ultraLevel();
+    return setUltra(Math.min(lv + 1, ultraSegEnd(lv || 1)));
+  }
+  function setSecretDiff(on) { setUltra(on ? (ultraLevel() || 1) : 0); return secretDiff(); }
 
   /* 作弊開關。純好玩用的，所以只影響「這一關會不會死／有沒有倒數／看不看得到答案」。
 
@@ -139,7 +230,12 @@
   }
   function cheating() { return CHEAT_KEYS.some(k => cheats()[k]); }
   function offKinds() { const o = load().profile.settings.offKinds; return Array.isArray(o) ? o : []; }
-  function kindOn(k) { return !offKinds().includes(k); }
+  /** 究極第 4 階起 allKinds：你關掉的題型在那裡全部照考，開關等於失效。 */
+  function kindOn(k) { return diff().allKinds ? true : !offKinds().includes(k); }
+  /** 這一檔的通關正確率門檻。公開四檔一律用 PASS_ACC，究極階梯自己往上抬。 */
+  function passAcc() { return diff().pass || PASS_ACC; }
+  /** 究極高階不准帶道具進場（連 GAME OVER 的復活石也不行）。 */
+  function itemsAllowed() { return !diff().noItems; }
   /** 切換題型開關；不允許把題型全部關光。 */
   function toggleKind(k) {
     const c = load().profile.settings;
@@ -156,8 +252,15 @@
 
   function diff() { return DIFFICULTY[load().profile.settings.difficulty] || DIFFICULTY.normal; }
   function setDifficulty(id) {
-    if (!DIFFICULTY[id]) return diff();
-    if (diffForced() && id !== 'ultra') return diff();      // 究極模式強制中：換不了難度
+    const d = DIFFICULTY[id];
+    if (!d) return diff();
+    // 究極階梯之間可以自由上下（爬到第幾階就有第幾階可選），但不能從究極溜回公開四檔
+    if (d.ultra) {
+      const top = ultraLevel();
+      if (top) setUltra(Math.min(d.ultra, top));            // 還沒解鎖的階不能用選的跳過去
+      return diff();
+    }
+    if (diffForced()) return diff();                        // 究極模式強制中：換不了難度
     load().profile.settings.difficulty = id;
     save(true);
     return diff();
@@ -202,6 +305,9 @@
       if (!c.difficulty) c.difficulty = 'normal';
       if (c.instantFeedback == null) c.instantFeedback = false;
     }
+    /* 倒數計時不再是選項：「每一題都計時」是這個專案的規則，不是偏好。
+       真的想停時間就用作弊選單的「時間暫停」—— 那是外掛，開了自己心裡有數。 */
+    if (from < 3) delete s.profile.settings.timer;
     s.v = SCHEMA;
     return s;
   }
@@ -236,9 +342,10 @@
   function isKnown(i) { const r = load().words[i]; return !!r && r.b >= 1; }
   function isSeen(i) { return !!load().words[i]; }
 
-  /** 記錄一次作答並更新排程。attempt=1 才計入「首次作答正確率」（重來的不計）。 */
-  function answer(i, ok, attempt) {
-    const r = rec(i), t = todayStr();
+  /* 一次作答怎麼改一筆間隔複習紀錄。抽出來是因為「我的單字本」用的是另一份紀錄，
+     但排程規則必須一模一樣 —— 兩邊各寫一次，遲早會走鐘。 */
+  function applyAnswer(r, ok, attempt) {
+    const t = todayStr();
     r.s++;
     if (ok) r.r++; else r.wr++;
     if (attempt === 1) { r.fs++; if (ok) r.fr++; }
@@ -256,8 +363,148 @@
       r.lwd = t;                                 // 最後一次答錯的日期
     }
     r.last = t;
+    return r;
+  }
+
+  /** 記錄一次作答並更新排程。attempt=1 才計入「首次作答正確率」（重來的不計）。 */
+  function answer(i, ok, attempt) {
+    const r = applyAnswer(rec(i), ok, attempt);
     save();
     return r;
+  }
+
+  // ---------- 我的單字本（自己輸入的字）----------
+  /* 詞彙表那 6012 字是大考中心的資料，所以自己加的字**完全分開存**：
+     分開的清單、分開的間隔複習紀錄、分開的統計 ——
+     不會混進關卡地圖、成就進度與「學會幾個字」，那些數字講的是詞彙表。
+
+     一筆自訂字可以自己帶例句，於是同一套題目生成器就能直接拿去出
+     克漏字／中譯英／句子重組／自由造句；再挑一個文法點，連文法題都有了。
+     所以「練單字、練文法、練造句」不是三個功能，是同一本單字本填多少欄位的差別。 */
+  const CUSTOM_KINDS = ['e2c', 'c2e', 'listen', 'spell', 'cloze', 'trans', 'order', 'free', 'gram'];
+  const CUSTOM_KIND_NAMES = {
+    e2c: '英→中', c2e: '中→英', listen: '聽發音', spell: '拼字',
+    cloze: '例句克漏字', trans: '中譯英填空', order: '句子重組', free: '自由造句', gram: '文法題',
+  };
+  /** 哪些題型需要例句／文法點才出得來（沒填就在畫面上標成灰的）。 */
+  const CUSTOM_NEEDS = { cloze: 'ex', trans: 'ex', order: 'ex', gram: 'gp' };
+  const CUSTOM_CFG_DEFAULT = { kinds: ['e2c', 'c2e', 'spell', 'cloze', 'trans', 'free'], n: 12 };
+
+  function customs() { const p = load().profile; return (p.custom = p.custom || []); }
+  function customFind(id) { return customs().find(x => x.id === id) || null; }
+  function customCfg() {
+    const p = load().profile;
+    p.customCfg = Object.assign({}, CUSTOM_CFG_DEFAULT, p.customCfg || {});
+    const c = p.customCfg;
+    c.kinds = (c.kinds || []).filter(k => CUSTOM_KINDS.includes(k));
+    if (!c.kinds.length) c.kinds = CUSTOM_CFG_DEFAULT.kinds.slice();
+    return c;
+  }
+  function setCustomCfg(patch) { Object.assign(customCfg(), patch || {}); save(true); return customCfg(); }
+  /** 切一個題型的開關；不允許全部關光（不然按開始練習會出不了題）。 */
+  function toggleCustomKind(k) {
+    if (!CUSTOM_KINDS.includes(k)) return customCfg();
+    const c = customCfg(), on = c.kinds.includes(k);
+    if (on && c.kinds.length <= 1) return c;
+    c.kinds = on ? c.kinds.filter(x => x !== k) : c.kinds.concat([k]);
+    save(true);
+    return c;
+  }
+
+  /* 例句要用 { } 標出目標字，克漏字與中譯英才知道要挖哪一個詞。
+     使用者不必自己打大括號 —— 沒標的話這裡自動找（允許 -s/-ed/-ing 這類變化形）。 */
+  function markEx(ex, word) {
+    const s = String(ex || '').trim();
+    if (!s) return '';
+    if (/\{[^}]*\}/.test(s)) return s;
+    const base = String(word || '').split('/')[0].replace(/\([^)]*\)/g, '').trim();
+    if (!base) return s;
+    const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('\\b(' + esc + "(?:e?s|ed|d|ing|ies|ied)?)\\b", 'i');
+    return re.test(s) ? s.replace(re, '{$1}') : s;
+  }
+  /** 這一筆自訂字目前出得了哪些題型。 */
+  function customKinds(c) {
+    const e = c && markEx(c.ex, c.w);
+    const hasEx = !!(e && /\{[^}]*\}/.test(e));
+    return CUSTOM_KINDS.filter(k => {
+      const need = CUSTOM_NEEDS[k];
+      if (need === 'ex') return hasEx;
+      if (need === 'gp') return !!(c && c.gp && (window.GRAMMAR || {})[c.gp]);
+      return true;
+    });
+  }
+
+  function customAdd(o) {
+    const w = String((o && o.w) || '').trim();
+    const tr = String((o && o.tr) || '').trim();
+    if (!w || !tr) return null;                 // 沒有英文或中文就出不了題，直接擋在這裡
+    const p = load().profile;
+    p.customSeq = (p.customSeq || 0) + 1;
+    const c = {
+      id: 'c' + p.customSeq, w, tr,
+      p: String((o && o.p) || '').trim(), ph: String((o && o.ph) || '').trim(),
+      ex: markEx((o && o.ex) || '', w), zh: String((o && o.zh) || '').trim(),
+      gp: String((o && o.gp) || '').trim(), lv: Math.min(6, Math.max(1, +(o && o.lv) || 3)),
+      at: todayStr(),
+    };
+    customs().push(c);
+    save(true);
+    return c;
+  }
+  function customUpdate(id, patch) {
+    const c = customFind(id);
+    if (!c) return null;
+    Object.assign(c, patch || {});
+    c.w = String(c.w || '').trim();
+    c.tr = String(c.tr || '').trim();
+    c.ex = markEx(c.ex, c.w);
+    save(true);
+    return c;
+  }
+  function customRemove(id) {
+    const p = load().profile, k = customs().findIndex(x => x.id === id);
+    if (k < 0) return false;
+    customs().splice(k, 1);
+    if (p.customRec) delete p.customRec[id];    // 紀錄跟著走，不留孤兒
+    save(true);
+    return true;
+  }
+
+  /** 把一筆自訂字包成題目生成器看得懂的樣子（i 一律是 null：它不在詞彙表裡）。 */
+  function customWord(id) {
+    const c = (id && typeof id === 'object') ? id : customFind(id);
+    if (!c) return null;
+    const ex = markEx(c.ex, c.w);
+    return {
+      i: null, cw: c.id, w: c.w, tr: c.tr, p: c.p || '', ph: c.ph || '',
+      lv: c.lv || 3, cf: [], gp: c.gp || '',
+      sent: /\{[^}]*\}/.test(ex) ? { ex, zh: c.zh || '', gp: c.gp || '' } : null,
+    };
+  }
+
+  function customRec(id) {
+    const p = load().profile;
+    p.customRec = p.customRec || {};
+    return (p.customRec[id] = p.customRec[id] || { b: 0, due: null, s: 0, r: 0, wr: 0, fr: 0, fs: 0 });
+  }
+  /** 自訂字的作答：排程規則和詞彙表完全一樣，只是記在自己的那一份。 */
+  function customAnswer(id, ok, attempt) {
+    const r = applyAnswer(customRec(id), ok, attempt);
+    save();
+    return r;
+  }
+  /** 今天該複習的自訂字（沒練過的算到期）。 */
+  function customDue(dstr) {
+    const t = dstr || todayStr();
+    return customs().filter(c => { const r = customRec(c.id); return !r.due || r.due <= t; });
+  }
+  /** 單字本的總覽數字（自己一套，不混進詞彙表的統計）。 */
+  function customStat() {
+    const list = customs();
+    let known = 0, mastered = 0;
+    list.forEach(c => { const r = customRec(c.id); if (r.b >= 1) known++; if (r.b >= 5) mastered++; });
+    return { total: list.length, known, mastered, due: customDue().length };
   }
 
   /* 出題權重：錯過的字要更常出現。
@@ -683,15 +930,21 @@
     { id: 'lv50', name: '五十級', tier: 'epic', desc: '等級達到 Lv.50', test: st => st.level >= 50, prog: st => [st.level, 50] },
     { id: 'stars200', name: '星塵滿載', tier: 'epic', desc: '累積 200 顆星', test: st => st.stars >= 200, prog: st => [st.stars, 200] },
     { id: 'writer100', name: '百句作家', tier: 'epic', desc: '累積寫下 100 句自由造句', test: st => st.freeCount >= 100, prog: st => [st.freeCount, 100] },
-    { id: 'hell10', name: '地獄常客', tier: 'epic', desc: '在「地獄」難度通關 10 次', test: st => st.hellClears >= 10, prog: st => [st.hellClears, 10] },
+    { id: 'hell10', name: '地獄常客', tier: 'epic', desc: '在「地獄」以上的難度通關 10 次', test: st => st.hellClears >= 10, prog: st => [st.hellClears, 10] },
     // --- 傳說（很難）---
+    { id: 'ultra10', name: '火中取字', tier: 'legend', desc: '在究極階梯上通關 10 次（哪一階都算）', test: st => st.ultraClears >= 10, prog: st => [st.ultraClears, 10] },
     { id: 'w4000', name: '四千字斬', tier: 'legend', desc: '學會 4000 個單字', test: st => st.known >= 4000, prog: st => [st.known, 4000] },
     { id: 'streak100', name: '百日不輟', tier: 'legend', desc: '連續學習 100 天', test: st => st.streak >= 100, prog: st => [st.streak, 100] },
     { id: 'gram32', name: '文法全通', tier: 'legend', desc: '32 個文法點全部精熟', test: st => st.gramDone >= 32, prog: st => [st.gramDone, 32] },
     { id: 'lv100', name: '百級傳說', tier: 'legend', desc: '等級達到 Lv.100', test: st => st.level >= 100, prog: st => [st.level, 100] },
     { id: 'allstage', name: '走完全圖', tier: 'legend', desc: '六個大關的每一個字母關都通過', test: st => st.playableStages > 0 && st.clearedStages >= st.playableStages, prog: st => [st.clearedStages, st.playableStages || 150] },
     { id: 'allthree', name: '全三星', tier: 'legend', desc: '每一個字母關都拿到三星', test: st => st.playableStages > 0 && st.threeStars >= st.playableStages, prog: st => [st.threeStars, st.playableStages || 150] },
-    // --- 究極（全書）---
+    // --- 究極（全書，＋階梯最頂那一關）---
+    {
+      id: 'exclear', name: '焚魂 EX 生還者', tier: 'ultra',
+      desc: '在究極階梯最頂階（EXTRA++++++）通關一次 —— 一顆心、時間 ×0.21、一題都不能錯',
+      test: st => st.exClears >= 1, prog: st => [Math.min(st.exClears, 1), 1],
+    },
     {
       id: 'allwords', name: '全書背完', tier: 'ultra',
       desc: `把全書 ${'6012'} 個單字全部學會`,
@@ -739,12 +992,16 @@
         if (st.stars >= 3) threeStars++;
       });
     }
-    let chests = 0, gems = 0, hellClears = 0, minutes = 0;
+    let chests = 0, gems = 0, hellClears = 0, ultraClears = 0, exClears = 0, minutes = 0;
+    const topId = ultraId(ULTRA_MAX);
     for (const dstr in s.days) {
       const d = s.days[dstr];
       chests += (d.chests || []).length;
       gems += (d.drops || []).filter(x => /^gem_/.test(x.id)).reduce((a, x) => a + x.n, 0);
-      hellClears += (d.runs || []).filter(r => r.passed && r.diff === 'extreme').length;
+      // 「地獄常客」算的是地獄以上 —— 究極階梯比地獄更硬，沒有理由不算
+      hellClears += (d.runs || []).filter(r => r.passed && diffRank(r.diff) >= diffRank('extreme')).length;
+      ultraClears += (d.runs || []).filter(r => r.passed && (DIFFICULTY[r.diff] || {}).ultra).length;
+      exClears += (d.runs || []).filter(r => r.passed && r.diff === topId).length;
       minutes += Math.round((d.runs || []).reduce((a, r) => a + (r.sec || 0), 0) / 60);
     }
     return {
@@ -756,7 +1013,7 @@
       bestCombo: s.profile.bestCombo || 0,
       perfectStage: !!s.profile.everPerfect,
       stars, clearedStages, threeStars, playableStages,
-      chests, gems, hellClears, minutes,
+      chests, gems, hellClears, ultraClears, exClears, minutes,
     };
   }
   /** 一個成就目前的進度（畫進度條用）。 */
@@ -1145,8 +1402,10 @@
   function equipped(kind) { return (load().profile.equipped || {})[kind] || null; }
 
   /** 過關金幣：基礎 + 星數 + 連勝，再乘上金幣磁鐵。 */
+  /* 金幣也跟著難度走：輕鬆只有六折，究極階梯最高 ×5。
+     XP 倍率一個人看不到（要等結算），金幣是當場入袋的 —— 兩邊一起拉開差距才有感覺。 */
   function stageCoins(stars, streak) {
-    return Math.round((8 + stars * 4 + Math.min(streak || 0, 10) * 2) * coinMult());
+    return Math.round((8 + stars * 4 + Math.min(streak || 0, 10) * 2) * coinMult() * (diff().coin || 1));
   }
 
   // ---------- 背包素材（寶石等通關掉落物）----------
@@ -1306,11 +1565,15 @@
     const x = o || {};
     const stars = x.stars || 0, combo = x.combo || 0, n = x.count || x.answered || 0;
     const retries = x.retries || 0;
-    const hard = x.diff === 'hard' || x.diff === 'extreme';
-    if (stars >= 3 && !retries && n >= 20 && combo >= 20 && hard) return 'rainbow';
-    if (stars >= 3 && !retries && n >= 10) return 'gold';
-    if (stars >= 3 || (stars >= 2 && !retries) || combo >= 12) return 'silver';
-    return 'wood';
+    const hard = diffRank(x.diff) >= diffRank('hard');       // 究極階梯本來就比「挑戰」硬
+    let t = 'wood';
+    if (stars >= 3 && !retries && n >= 20 && combo >= 20 && hard) t = 'rainbow';
+    else if (stars >= 3 && !retries && n >= 10) t = 'gold';
+    else if (stars >= 3 || (stars >= 2 && !retries) || combo >= 12) t = 'silver';
+    // 究極階梯的保底：那裡只有一顆心，能走出來就不該只拿到木箱
+    const floor = (DIFFICULTY[x.diff] || {}).chest;
+    if (floor && CHEST_ORDER.indexOf(floor) > CHEST_ORDER.indexOf(t)) t = floor;
+    return t;
   }
   /** 升一級。預設最多升到金 —— 彩虹只能靠真本事（或加碼題答對）拿到。 */
   function upgradeChest(t, allowRainbow) {
@@ -1540,15 +1803,46 @@
   }
   function clearGoal() { load().profile.goal = Object.assign({}, GOAL_DEFAULT); save(true); }
 
-  /** 目標的即時狀態：還剩幾天、今天該學幾個字、今天學了幾個、有沒有落後。 */
-  function goalStat(dstr) {
-    const g = goalCfg(), t = dstr || todayStr(), s = load();
+  /** 某個範圍（全書／某一級）裡有幾個字、已經學會幾個。 */
+  function goalScope(scope) {
+    const s = load();
     let known = 0, total = 0;
     for (const w of window.VOCAB) {
-      if (g.scope !== 'all' && w.lv !== +g.scope) continue;
+      if (scope !== 'all' && w.lv !== +scope) continue;
       total++;
       if (s.words[w.i] && s.words[w.i].b >= 1) known++;
     }
+    return { known, total };
+  }
+
+  /* 衝刺目標的預設值＝「正常速度讀得完的量」，不是「這個範圍總共幾個字」。
+     一天 30 個新字（含複習大約 30–40 分鐘）是這個專案裡撐得住的節奏，
+     所以一週就是 210 字、一個月就是 900 字 —— 訂得完就會想做完，
+     訂成「明天之前背完全書 6012 字」只會讓人第一天就放棄。 */
+  const GOAL_PACE = 30;
+  const GOAL_PRESETS = [{ days: 7, name: '一個禮拜' }, { days: 30, name: '一個月' }];
+  /** 算出某個天數的預設目標（不會寫進存檔，畫面可以先拿去顯示「約 N 字」）。 */
+  function goalPreset(days, scope) {
+    const n = Math.max(1, Math.round(days || 0));
+    const sc = scope == null ? goalCfg().scope : scope;
+    const { known, total } = goalScope(sc);
+    return {
+      days: n, scope: sc, perDay: GOAL_PACE,
+      until: addDays(todayStr(), n),
+      target: Math.min(total, known + n * GOAL_PACE),   // 範圍剩不到這麼多字就以範圍為準
+    };
+  }
+  /** 套用預設目標。planned 記成 GOAL_PACE，之後才看得出有沒有落後。 */
+  function setGoalPreset(days, scope) {
+    const p = goalPreset(days, scope);
+    setGoal({ scope: p.scope, until: p.until, target: p.target, on: true, planned: GOAL_PACE });
+    return p;
+  }
+
+  /** 目標的即時狀態：還剩幾天、今天該學幾個字、今天學了幾個、有沒有落後。 */
+  function goalStat(dstr) {
+    const g = goalCfg(), t = dstr || todayStr();
+    const { known, total } = goalScope(g.scope);
     const target = Math.min(g.target || total, total);
     // 含今天、到期限當天的前一天為止（「8/10 之前」＝做到 8/9）
     const daysLeft = g.until ? Math.max(0, daysBetween(t, g.until)) : null;
@@ -1745,17 +2039,30 @@
   }
 
   /** 今日主打關：抽一個字母關，通關給大獎。給每天一個「今天要去哪」的目標。 */
+  /* 今日主打關：抽一個**還沒打完**的字母關（完成度不到 100%）。
+     抽到已經 100% 的關等於叫人把已經會的字再考一遍 —— 那不是任務，是罰站。
+     從目前的級別往後找，整級都打完了就換下一級；全書都打完了就不給主打關。 */
   function specialQuest(dstr) {
-    const t = dstr || todayStr(), rnd = seeded('S' + t), lv = startLevel();
-    const pool = LETTERS.filter(L => bucket(lv, L).length);
-    if (!pool.length) return null;
-    const L = pool[Math.floor(rnd() * pool.length)];
-    return {
+    const t = dstr || todayStr(), rnd = seeded('S' + t), start = startLevel();
+    const make = (lv, L) => ({
       id: `special:${lv}${L}`, tag: '主打', xp: 120, coin: 45, goal: 1,
       name: `今日主打關：第 ${lv} 級 ・ ${L} 關通關`,
       lv, letter: L,
       cur: (s, d) => bool(passedRuns(d).some(r => r.lv === lv && r.letter === L)),
-    };
+    });
+    /* 今天已經領過的主打關就固定住：打完那一關會讓它變成 100%，
+       這時候如果重抽，看板上剛剛完成的任務會憑空換成另一關。 */
+    const done = Object.keys(day(t).quests || {}).find(id => id.indexOf('special:') === 0);
+    if (done) {
+      const m = /^special:(\d)([A-Z])$/.exec(done);
+      if (m) return make(+m[1], m[2]);
+    }
+    for (let k = 0; k < 6; k++) {
+      const lv = ((start - 1 + k) % 6) + 1;
+      const pool = LETTERS.filter(L => bucket(lv, L).length && !mapStat(lv, L).full);
+      if (pool.length) return make(lv, pool[Math.floor(rnd() * pool.length)]);
+    }
+    return null;                                   // 全書每一關都 100% 了，恭喜
   }
 
   /* 挑戰任務「領完就換下一個」：
@@ -2032,6 +2339,33 @@
     // 沒開的寶箱是一個個獨立的箱子，合併會憑空生出箱子 —— 取比較多的那一份就好
     if ((rp.chestBag || []).length > (p.chestBag || []).length) p.chestBag = rp.chestBag;
 
+    /* 我的單字本：兩邊聯集（自己輸入的字不該因為換裝置就不見）。
+       id 撞號時以本機為準 —— 兩台裝置各自從 c1 開始編號，內容通常不是同一個字，
+       所以遠端那一筆會重新編一個號碼收進來，而不是覆蓋掉本機的。 */
+    const mineIds = new Set(customs().map(c => c.id));
+    const sameWord = new Set(customs().map(c => String(c.w).toLowerCase()));
+    (rp.custom || []).forEach(c => {
+      if (!c || !c.w || sameWord.has(String(c.w).toLowerCase())) return;   // 同一個字就不重複收
+      let id = c.id;
+      if (!id || mineIds.has(id)) { p.customSeq = (p.customSeq || 0) + 1; id = 'c' + p.customSeq; }
+      mineIds.add(id);
+      sameWord.add(String(c.w).toLowerCase());
+      customs().push(Object.assign({}, c, { id }));
+      if ((rp.customRec || {})[c.id]) {
+        p.customRec = p.customRec || {};
+        p.customRec[id] = rp.customRec[c.id];
+      }
+      out.custom = (out.custom || 0) + 1;
+    });
+    // 同一筆字兩邊都練過：box 高的贏（規則和詞彙表那邊一樣）
+    for (const id in (rp.customRec || {})) {
+      if (!mineIds.has(id)) continue;
+      const theirs = rp.customRec[id], mine = (p.customRec || {})[id];
+      if (!mine) { p.customRec = p.customRec || {}; p.customRec[id] = theirs; continue; }
+      if ((theirs.b || 0) > (mine.b || 0)) p.customRec[id] = Object.assign({}, mine, theirs);
+    }
+    p.customSeq = Math.max(p.customSeq || 0, rp.customSeq || 0);
+
     // 熟練度：box 高的贏；一樣高就取複習日排得比較晚的（代表比較新）；作答次數取大值
     const rw = remote.words || {};
     for (const i in rw) {
@@ -2105,10 +2439,15 @@
     fixMisclick, recentWrong,
     DIFFICULTY, DIFF_ORDER, diff, setDifficulty,
     SECRET_DIFFS, diffList, diffRank, diffForced, secretDiff, setSecretDiff,
+    ULTRA_LADDERS, ULTRA_NAMES, ULTRA_MAX, ASH_FROM, ultraId, ultraCode, ultraEntry, ultraSegEnd,
+    ultraLevel, setUltra, ultraUp, passAcc, itemsAllowed,
     CHEAT_KEYS, CHEAT_NAMES, cheats, cheat, setCheat, cheating,
     ALL_KINDS, KIND_NAMES, offKinds, kindOn, toggleKind,
     KEY_ACTS, KEY_DEFAULTS, keys, keyOf, setKey, resetKeys,
-    goalCfg, setGoal, clearGoal, goalStat,
+    goalCfg, setGoal, clearGoal, goalStat, goalScope, goalPreset, setGoalPreset, GOAL_PACE, GOAL_PRESETS,
+    CUSTOM_KINDS, CUSTOM_KIND_NAMES, CUSTOM_NEEDS, customs, customFind, customCfg, setCustomCfg,
+    toggleCustomKind, markEx, customKinds, customAdd, customUpdate, customRemove,
+    customWord, customRec, customAnswer, customDue, customStat,
     checkIn, checkinPreview, checkinSlot, CHECKIN_TRACK, CHECKIN_MILESTONE,
     recentAccuracy, recommendDifficulty, difficultyFits,
     RARITY, xpMult, comboMult, coinMult, checkinMult, chestBoost,
