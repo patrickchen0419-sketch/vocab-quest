@@ -169,14 +169,27 @@
      字母一律要按「大寫」（壓著 Shift 或開 Caps Lock）才算 —— 這是刻意的：
      小寫太容易在正常打字時湊出來，大寫等於多一道「我是故意的」的門檻。 */
   const SEQS = [
-    { code: CODE, name: '管理員面板', run: () => enter() },
+    /* 只有這一組不分大小寫：前面八下是方向鍵，正常打字打不出來，
+       accidental 觸發本來就不可能 —— 再要求 B、A 一定要壓 Shift 只是刁難。
+       （EXTRA／IDDQD／EXTREMELY 是純字母，還是只認大寫，理由見下面。） */
+    { code: CODE, name: '管理員面板', anyCase: true, run: () => enter() },
     { code: 'IDDQD'.split(''), name: '無敵', run: () => toggleCheat('god') },
     { code: 'EXTRA'.split(''), name: '究極難度', run: () => toggleSecret('EXTRA'), plus: true },
     /* 第二段階梯的入口。'EXTRA' 不是 'EXTREMELY' 的前綴（第 5 個字母一個是 A 一個是 E），
        所以兩組密技不會互相誤觸，各自數各自的進度就好。 */
     { code: 'EXTREMELY'.split(''), name: '灰燼難度', run: () => toggleSecret('EXTREMELY'), plus: true },
   ];
-  const prog = SEQS.map(() => 0);
+  /* 比對方式：留一段「最近按過的鍵」，每次按鍵就看尾巴是不是等於某一組密技。
+
+     本來是每組各記一個進度、對不上就歸零，那個寫法有個很煩的毛病：
+     多按了一下方向鍵（或按住不放連發一下），↑↑↑↓↓←→←→BA 就完全不算 ——
+     可是那明明還是一組正確的密技，尾巴十下就是對的。
+     使用者的體感就變成「這個密技很難開，要試個三四次」。
+     改成看尾巴，重複鍵、手滑多按的鍵自然被前面吃掉，不需要任何退位規則。 */
+  const MAXCODE = SEQS.reduce((a, s) => Math.max(a, s.code.length), 0);
+  const recent = [];
+  const keyEq = (a, b, anyCase) =>
+    anyCase ? String(a).toLowerCase() === String(b).toLowerCase() : a === b;
   let taps = 0, tapAt = 0, authed = false;
   /* EXTRA 打完之後，接著的每一個「＋」都再往上一階（EXTRA++++++ ＝ 一路打到頂）。
      中間插進任何別的鍵就算斷掉，要再打一次 EXTRA 才能繼續加 ——
@@ -203,13 +216,19 @@
     const k = String((e && e.key) || '');
     if (plusChain && k === '+') { ultraUp(); return; }      // EXTRA 之後的每個加號＝再上一階
     plusChain = false;
-    SEQS.forEach((s, n) => {
-      // 完全比對：'B' 只認大寫 B，小寫 b 不算（方向鍵本來就是 'ArrowUp' 這種完整字串）
-      if (k === s.code[prog[n]]) prog[n]++;
-      else prog[n] = (k === s.code[0] ? 1 : 0);
+    recent.push(k);
+    if (recent.length > MAXCODE) recent.shift();
+    for (const s of SEQS) {
+      if (recent.length < s.code.length) continue;
+      const tail = recent.slice(-s.code.length);
+      // 純字母的密技只認大寫（小寫太容易在正常打字時湊出來）；方向鍵那組不分大小寫
+      if (!s.code.every((c, k2) => keyEq(tail[k2], c, s.anyCase))) continue;
+      recent.length = 0;                                    // 對上了就重新開始數
       // 加號鏈只在「這一次是打開」時接上；打 EXTRA 把究極關掉之後再按 + 不該又點著
-      if (prog[n] >= s.code.length) { prog[n] = 0; const on = s.run(); if (s.plus) plusChain = on !== false; }
-    });
+      const on = s.run();
+      if (s.plus) plusChain = on !== false;
+      break;
+    }
   }, true);
 
   function toggleCheat(k) {
@@ -475,7 +494,9 @@
         <kbd>I</kbd><kbd>D</kbd><kbd>D</kbd><kbd>Q</kbd><kbd>D</kbd> → 切換無敵（致敬 Doom）<br>
         <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>A</kbd> → 究極階梯第 1 階（後面接 <kbd>+</kbd> 一階一階往上）<br>
         <kbd>E</kbd><kbd>X</kbd><kbd>T</kbd><kbd>R</kbd><kbd>E</kbd><kbd>M</kbd><kbd>E</kbd><kbd>L</kbd><kbd>Y</kbd> → 直接跳到灰燼段（第 ${S().ASH_FROM} 階，一樣可以接 <kbd>+</kbd>）<br>
-        <kbd>↑</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd><kbd>←</kbd><kbd>→</kbd><kbd>B</kbd><kbd>A</kbd> → 這個面板（B、A 也要大寫）</p>`;
+        <kbd>↑</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd><kbd>←</kbd><kbd>→</kbd><kbd>B</kbd><kbd>A</kbd> → 這個面板（<b>這一組不分大小寫</b>，B、A 直接按就好）<br>
+        中間多按幾下也沒關係：只看最後那幾下對不對，所以按住方向鍵連發、手滑多按一下都不會白費。
+        另外連點左上角標題 ${TAP_NEED} 下也會開。</p>`;
   }
 
   // ---- 玩家數值 ----

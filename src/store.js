@@ -932,7 +932,10 @@
     { id: 'writer100', name: '百句作家', tier: 'epic', desc: '累積寫下 100 句自由造句', test: st => st.freeCount >= 100, prog: st => [st.freeCount, 100] },
     { id: 'hell10', name: '地獄常客', tier: 'epic', desc: '在「地獄」以上的難度通關 10 次', test: st => st.hellClears >= 10, prog: st => [st.hellClears, 10] },
     // --- 傳說（很難）---
-    { id: 'ultra10', name: '火中取字', tier: 'legend', desc: '在究極階梯上通關 10 次（哪一階都算）', test: st => st.ultraClears >= 10, prog: st => [st.ultraClears, 10] },
+    /* 隱藏成就：拿到之前在成就牆上只會顯示「？？？」，名字與條件都不講。
+       這兩個都指向究極階梯 —— 把條件寫在牆上等於直接劇透還有隱藏難度，
+       那就不是「意外達成才拿得到」了。 */
+    { id: 'ultra10', name: '火中取字', tier: 'legend', hidden: true, desc: '在究極階梯上通關 10 次（哪一階都算）', test: st => st.ultraClears >= 10, prog: st => [st.ultraClears, 10] },
     { id: 'w4000', name: '四千字斬', tier: 'legend', desc: '學會 4000 個單字', test: st => st.known >= 4000, prog: st => [st.known, 4000] },
     { id: 'streak100', name: '百日不輟', tier: 'legend', desc: '連續學習 100 天', test: st => st.streak >= 100, prog: st => [st.streak, 100] },
     { id: 'gram32', name: '文法全通', tier: 'legend', desc: '32 個文法點全部精熟', test: st => st.gramDone >= 32, prog: st => [st.gramDone, 32] },
@@ -941,7 +944,7 @@
     { id: 'allthree', name: '全三星', tier: 'legend', desc: '每一個字母關都拿到三星', test: st => st.playableStages > 0 && st.threeStars >= st.playableStages, prog: st => [st.threeStars, st.playableStages || 150] },
     // --- 究極（全書，＋階梯最頂那一關）---
     {
-      id: 'exclear', name: '焚魂 EX 生還者', tier: 'ultra',
+      id: 'exclear', name: '焚魂 EX 生還者', tier: 'ultra', hidden: true,
       desc: '在究極階梯最頂階（EXTRA++++++）通關一次 —— 一顆心、時間 ×0.21、一題都不能錯',
       test: st => st.exClears >= 1, prog: st => [Math.min(st.exClears, 1), 1],
     },
@@ -2039,9 +2042,11 @@
   }
 
   /** 今日主打關：抽一個字母關，通關給大獎。給每天一個「今天要去哪」的目標。 */
-  /* 今日主打關：抽一個**還沒打完**的字母關（完成度不到 100%）。
-     抽到已經 100% 的關等於叫人把已經會的字再考一遍 —— 那不是任務，是罰站。
-     從目前的級別往後找，整級都打完了就換下一級；全書都打完了就不給主打關。 */
+  /* 今日主打關：抽一個**還沒通過過**的字母關。
+     抽到已經通關的等於叫人把打過的關再打一次 —— 那不是任務，是罰站。
+     先找「沒通過過而且還有字沒學會」的關；整本書都通過了才退而求其次找
+     「通過了但完成度還不到 100%」的；連那個都沒有（全書 100%）就不給主打關。
+     每一層都從目前的級別往後找，整級沒有就換下一級。 */
   function specialQuest(dstr) {
     const t = dstr || todayStr(), rnd = seeded('S' + t), start = startLevel();
     const make = (lv, L) => ({
@@ -2057,10 +2062,13 @@
       const m = /^special:(\d)([A-Z])$/.exec(done);
       if (m) return make(+m[1], m[2]);
     }
-    for (let k = 0; k < 6; k++) {
-      const lv = ((start - 1 + k) % 6) + 1;
-      const pool = LETTERS.filter(L => bucket(lv, L).length && !mapStat(lv, L).full);
-      if (pool.length) return make(lv, pool[Math.floor(rnd() * pool.length)]);
+    const fresh = st => !st.cleared && !st.full;    // 連通都沒通過的關 —— 最想給的就是這種
+    for (const ok of [fresh, st => !st.full]) {
+      for (let k = 0; k < 6; k++) {
+        const lv = ((start - 1 + k) % 6) + 1;
+        const pool = LETTERS.filter(L => bucket(lv, L).length && ok(mapStat(lv, L)));
+        if (pool.length) return make(lv, pool[Math.floor(rnd() * pool.length)]);
+      }
     }
     return null;                                   // 全書每一關都 100% 了，恭喜
   }

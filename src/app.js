@@ -2894,9 +2894,18 @@ ${sum.free.length ? `<h2>自由造句</h2>${sum.free.map(f => `<p><b>${esc(f.w)}
       return `<h3 style="margin-top:14px">${esc(T.name)} <span class="tiny">${list.filter(b => p.badges.includes(b.id)).length}/${list.length}</span></h3>
         <div class="achs">${list.map(b => {
         const has_ = p.badges.includes(b.id);
+        /* 隱藏成就：拿到之前連名字、條件、進度都不給，只留一個「？？？」的位子。
+           寫出來就等於劇透 —— 那種成就的意義就是自己撞上去的時候才知道。 */
+        if (b.hidden && !has_) {
+          return `<div class="ach ${T.cls} secret">
+            <div class="ahead"><span class="aicon">❔</span><span class="rtag">${esc(T.name)}</span></div>
+            <b>？？？</b>
+            <span class="tiny">隱藏成就 —— 條件不公開，撞上了才會亮。</span>
+          </div>`;
+        }
         const pr = S.badgeProgress(b, st);
-        return `<div class="ach ${T.cls} ${has_ ? 'got' : ''}">
-            <div class="ahead"><span class="aicon">${has_ ? '🏅' : '🔒'}</span><span class="rtag">${esc(T.name)}</span></div>
+        return `<div class="ach ${T.cls} ${has_ ? 'got' : ''}${b.hidden ? ' wassecret' : ''}">
+            <div class="ahead"><span class="aicon">${has_ ? '🏅' : '🔒'}</span><span class="rtag">${esc(T.name)}${b.hidden ? ' ・ 隱藏' : ''}</span></div>
             <b>${esc(b.name)}</b>
             <span class="tiny">${esc(b.desc)}</span>
             ${has_ ? '<span class="tiny" style="color:var(--gold)">已達成</span>'

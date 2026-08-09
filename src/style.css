@@ -738,6 +738,13 @@ nav.tabs .btn.on { background: var(--ac); color: #07231b; border-color: transpar
 .ach .aicon { font-size: 22px; filter: grayscale(1) opacity(.5); }
 .ach .rtag { font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 8px; }
 .ach.got .aicon { filter: none; }
+/* 隱藏成就（還沒拿到）：故意做得比鎖住的還更「沒東西可看」——
+   邊框改成虛線、稀有度色調壓掉，讓人看得出那是個位子，而不是一個可以規劃的目標 */
+.ach.secret { border-style: dashed; opacity: .72; }
+.ach.secret b { color: var(--tx3); letter-spacing: 2px; }
+.ach.secret .rtag { filter: grayscale(.75); }
+/* 拿到之後就正常顯示，只在稀有度標籤後面補一句「隱藏」 */
+.ach.wassecret.got { box-shadow: inset 0 0 26px rgba(169, 131, 255, .18); }
 .ach.got { box-shadow: inset 0 0 26px rgba(245, 185, 66, .14); }
 .ach.got b { color: var(--gold); }
 .ach.r-common { border-color: #4a5c85; }

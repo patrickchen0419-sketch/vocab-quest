@@ -858,6 +858,30 @@ t('成就頁分等級列出，未達成的顯示進度條', () => {
   assert(has('成就收集度'), '沒有整體收集度進度條');
 });
 
+t('隱藏成就在拿到之前只有一個「？？？」的位子，不劇透究極階梯', () => {
+  const hidden = S.BADGES.filter(b => b.hidden);
+  hidden.forEach(b => { S.profile.badges = S.profile.badges.filter(x => x !== b.id); });
+  goHome();
+  click('[data-go="badges"]');
+  assert(doc.querySelectorAll('.ach.secret').length === hidden.length,
+    '隱藏成就沒有蓋起來：' + doc.querySelectorAll('.ach.secret').length);
+  assert(has('？？？') && has('隱藏成就'), '沒有「？？？」的位子：' + txt().slice(0, 400));
+  hidden.forEach(b => {
+    assert(!has(b.name), `隱藏成就的名字露出來了：${b.name}`);
+    assert(!has(b.desc), `隱藏成就的條件露出來了：${b.id}`);
+  });
+  assert(!has('究極階梯') && !has('EXTRA'), '成就牆劇透了隱藏難度：' + txt().slice(0, 600));
+  // 位子還是要算進總數，不然「32 個」會對不上
+  assert(doc.querySelectorAll('.ach').length === S.BADGES.length, '隱藏成就沒有佔位子');
+  // 拿到之後就正常顯示
+  S.profile.badges.push(hidden[0].id);
+  goHome();
+  click('[data-go="badges"]');
+  assert(has(hidden[0].name), '拿到了還藏著：' + hidden[0].name);
+  assert(doc.querySelectorAll('.ach.secret').length === hidden.length - 1, '拿到的那個沒有翻開');
+  S.profile.badges = S.profile.badges.filter(x => x !== hidden[0].id);
+});
+
 t('徽章與文法進度頁列出 32 個文法點', () => {
   assert(has('文法 32 點進度') && has('現在完成式') && has('倒裝'), '文法進度不完整');
 });
@@ -2043,6 +2067,33 @@ t('半套密技不會開（按錯就要重來）', () => {
   assert(!doc.querySelector('.adminwrap'), '按錯順序也開了面板');
   konami();
   assert(doc.querySelector('.adminwrap'), '重來一次應該要開得起來');
+});
+
+t('中間多按幾下不會白費：只看最後那十下對不對', () => {
+  click('[data-a="close"]');
+  // 按住方向鍵連發、手滑多按一下 —— 尾巴十下還是對的，就該開
+  ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
+    'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'B', 'A'].forEach(k => press(k));
+  assert(doc.querySelector('.adminwrap'), '多按了一下方向鍵就整組作廢：' + txt().slice(-200));
+  click('[data-a="close"]');
+  // 前面先亂按一串，再好好打一次完整的
+  'QWERTY'.split('').forEach(k => press(k));
+  konami();
+  assert(doc.querySelector('.adminwrap'), '前面亂按過就再也開不起來');
+});
+
+t('這一組密技不分大小寫（前面八下是方向鍵，本來就不可能誤觸）', () => {
+  click('[data-a="close"]');
+  ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight']
+    .forEach(k => press(k));
+  press('b'); press('a');
+  assert(doc.querySelector('.adminwrap'), '小寫 b、a 開不起來 —— 那一段要壓 Shift 太刁難了');
+  // 純字母的那幾組還是只認大寫（小寫太容易在正常打字時湊出來）
+  click('[data-a="close"]');
+  S.setCheat('god', false);
+  'iddqd'.split('').forEach(k => press(k));
+  assert(!S.cheat('god'), '小寫 iddqd 也開得起來');
+  konami();                                        // 後面的測試要面板開著
 });
 
 t('改 XP／金幣會立刻寫進存檔，頂端列同步更新', () => {

@@ -1325,18 +1325,26 @@ t('挑戰任務領完會換下一個，不會一直掛著做完的', () => {
   d.quests = {}; d.questDone = {};
 });
 
-t('今日主打關只抽「還沒打完」的關，不會叫人重打已經 100% 的關', () => {
+t('今日主打關只抽「還沒通過過」的關，不會叫人重打已經通關的', () => {
   const s = S.load();
   const snap = JSON.parse(JSON.stringify(s.words));
+  const mapSnap = JSON.parse(JSON.stringify(s.map || {}));
   const t2 = '2026-07-30';
   S.day(t2).quests = {};
   try {
+    // 第 1 級整級標成「通過過」（但字沒學完，所以完成度還不到 100%）
+    s.map = s.map || {};
+    S.LETTERS.forEach(L => { if (S.bucket(1, L).length) s.map['1:' + L] = { cleared: true, stars: 1 }; });
+    let q = S.specialQuest(t2);
+    assert(q && !S.mapStat(q.lv, q.letter).cleared, `抽到已經通關的關：第 ${q && q.lv} 級 ${q && q.letter}`);
+    assert(q.lv !== 1, '第 1 級全部通關了卻還在第 1 級裡抽：' + q.lv);
+
     // 把第 1 級整級變成 100%（每個字都學會）
     S.LETTERS.forEach(L => S.bucket(1, L).forEach(i => {
       s.words[i] = Object.assign({ b: 0, due: null, s: 0, r: 0, wr: 0, fr: 0, fs: 0 }, s.words[i], { b: 3 });
     }));
     assert(S.LETTERS.every(L => !S.bucket(1, L).length || S.mapStat(1, L).full), '第 1 級沒有變成全滿');
-    const q = S.specialQuest(t2);
+    q = S.specialQuest(t2);
     assert(q, '第 1 級打完了就不給主打關了');
     assert(!S.mapStat(q.lv, q.letter).full, `抽到已經打完的關：第 ${q.lv} 級 ${q.letter}`);
     assert(q.lv !== 1, '第 1 級全滿了卻還在第 1 級裡抽：' + q.lv);
@@ -1350,6 +1358,7 @@ t('今日主打關只抽「還沒打完」的關，不會叫人重打已經 100%
     assert(again && again.id === q.id, `領過之後主打關被換掉了：${q.id} → ${again && again.id}`);
   } finally {
     s.words = snap;
+    s.map = mapSnap;
     S.day(t2).quests = {};
   }
 });
@@ -1502,6 +1511,17 @@ t('stats 提供成就要用的累積數字', () => {
     'chests', 'gems', 'hellClears', 'ultraClears', 'exClears', 'minutes', 'gramDone', 'freeCount'].forEach(k =>
       assert(st[k] != null, '缺少欄位：' + k));
   assert(st.total === V.length, '總字數不對');
+});
+
+t('指向究極階梯的兩個成就是隱藏的 —— 寫在牆上就等於劇透有隱藏難度', () => {
+  const hidden = S.BADGES.filter(b => b.hidden);
+  assert(hidden.length === 2, '隱藏成就數量不對：' + hidden.map(b => b.id).join(','));
+  assert(hidden.every(b => ['ultra10', 'exclear'].includes(b.id)), '隱藏的不是那兩個：' + hidden.map(b => b.id).join(','));
+  // 其他成就都要看得到條件（隱藏是例外，不是常態）
+  assert(S.BADGES.filter(b => !b.hidden).length === S.BADGES.length - 2, '把別的成就也藏起來了');
+  // 藏歸藏，達成判定完全照常
+  const ex = S.BADGES.find(b => b.id === 'exclear');
+  assert(ex.test({ exClears: 1 }) === true, '隱藏成就變成拿不到了');
 });
 
 t('究極階梯的通關會被算進成就：地獄常客照算，另外有階梯專屬的兩個', () => {
