@@ -996,8 +996,15 @@
   const UNIQUE_KINDS = ['theme', 'title', 'pet', 'auto'];
   const isUnique = it => UNIQUE_KINDS.includes(it.kind);
 
+  /* 管理員可以指定今天哪幾件特價（settings.dealOverride）。
+     null／undefined＝照原本的規則每天自動抽；空陣列＝今天完全沒有特價。 */
   function dealsToday(dstr) {
     const t = dstr || todayStr();
+    const ov = load().profile.settings.dealOverride;
+    if (Array.isArray(ov)) {
+      return ov.map(id => shopItem(id)).filter(Boolean)
+        .map(x => ({ id: x.id, off: 0.25, cost: Math.round(x.cost * 0.75), full: x.cost }));
+    }
     // 已經擁有的單品（主題、夥伴、稱號、護符）不再上特價 —— 特價要是買得到的東西
     const pool = SHOP.filter(x => x.cost >= 100 && !(isUnique(x) && owned(x.id)));
     return pickN(pool, 2, seeded('D' + t)).map(x => ({
@@ -1009,9 +1016,49 @@
   function priceOf(id) {
     const it = shopItem(id);
     if (!it) return 0;
+    const ov = (load().profile.settings.priceOverride || {})[id];
+    if (ov != null) return Math.max(0, ov);          // 管理員指定價：連特價都蓋過去
     const d = dealFor(id);
     return d ? d.cost : it.cost;
   }
+
+  /* ---------- 管理員專用的設定入口 ----------
+     這些函式只有管理員面板會呼叫。放在 store 而不是 admin.js，是因為它們改的是遊戲狀態，
+     而遊戲狀態的規則（價格怎麼算、任務怎麼算完成）本來就住在這裡。 */
+  function setPrice(id, n) {
+    const c = load().profile.settings;
+    c.priceOverride = c.priceOverride || {};
+    if (n == null || n === '') delete c.priceOverride[id];
+    else c.priceOverride[id] = Math.max(0, Math.round(+n) || 0);
+    save(true);
+    return c.priceOverride;
+  }
+  function clearPrices() { load().profile.settings.priceOverride = {}; save(true); }
+  /** ids = 陣列（指定特價）／null（回到每天自動抽）。 */
+  function setDeals(ids) {
+    const c = load().profile.settings;
+    if (ids == null) delete c.dealOverride; else c.dealOverride = ids.slice(0, 6);
+    save(true);
+    return dealsToday();
+  }
+  function setBadge(id, on) {
+    const p = load().profile;
+    const set = new Set(p.badges || []);
+    on ? set.add(id) : set.delete(id);
+    p.badges = [...set];
+    save(true);
+    return p.badges;
+  }
+  /** 把某個任務直接標成完成（或取消）。獎勵照原本的流程在結算時入帳。 */
+  function setQuestDone(id, on) {
+    const d = day();
+    d.quests = d.quests || {};
+    on ? (d.quests[id] = true) : delete d.quests[id];
+    save(true);
+    return d.quests;
+  }
+  /** 清掉今天的簽到紀錄，讓簽到可以重跑一次。 */
+  function resetCheckin() { const d = day(); delete d.checkin; save(true); }
 
   function coins() { return load().profile.coins || 0; }
   function addCoins(n) {
@@ -2078,6 +2125,7 @@
     MATERIALS, MAT_ORDER, material, mats, matCount, addMat, useMats,
     matDrop, grantMats, dropLog, gemsToday, RECIPES, canCraft, craft, useKey,
     dealsToday, dealFor, priceOf,
+    setPrice, clearPrices, setDeals, setBadge, setQuestDone, resetCheckin,
     get settings() { return load().profile.settings; },
     get profile() { return load().profile; },
   };

@@ -304,7 +304,8 @@
   const num = sel => Math.round(+val(sel) || 0);
 
   const TABS = [
-    ['cheat', '😈 作弊選單'], ['player', '玩家數值'], ['items', '道具素材'], ['map', '闖關進度'],
+    ['cheat', '😈 作弊選單'], ['player', '玩家數值'], ['items', '道具素材'], ['shop', '🏪 商店'],
+    ['quest', '🎯 任務簽到成就'], ['map', '闖關進度'],
     ['words', '單字資料'], ['ui', '介面文字'], ['look', '配色外觀'],
     ['data', '存檔原始碼'], ['go', '跳畫面'],
   ];
@@ -338,6 +339,8 @@
     if (tab === 'cheat') return tabCheat();
     if (tab === 'player') return tabPlayer();
     if (tab === 'items') return tabItems();
+    if (tab === 'shop') return tabShop();
+    if (tab === 'quest') return tabQuest();
     if (tab === 'map') return tabMap();
     if (tab === 'words') return tabWords();
     if (tab === 'ui') return tabUi();
@@ -435,6 +438,85 @@
       <div class="agrid">${s.CHEST_ORDER.map(t => stepper('chest', t, s.CHEST[t].name, (bag.byTier || {})[t] || 0)).join('')}</div>
       <p class="anote">主題／稱號／夥伴這類「只能有一個」的東西，數量設成 1 就等於擁有，
         要不要裝備還是去商店按。</p>`;
+  }
+
+  // ---- 商店 ----
+  function tabShop() {
+    const s = S(), inv = s.inventory(), deals = s.dealsToday();
+    const over = s.settings.priceOverride || {};
+    const auto = !Array.isArray(s.settings.dealOverride);
+    const row = it => {
+      const have = inv[it.id] || 0;
+      const isEquip = it.kind === 'theme' || it.kind === 'title' || it.kind === 'pet';
+      const on = isEquip && s.equipped(it.kind) === it.id;
+      const onDeal = deals.some(d => d.id === it.id);
+      return `<div class="aword" style="margin:4px 0;padding:6px 8px">
+        <div class="arow" style="margin:0;gap:6px">
+          <b style="flex:1;min-width:120px">${esc(it.name)}
+            <span class="tiny" style="color:var(--tx3)">${esc((s.RARITY[it.rarity] || {}).name || '')}${have ? ' ・持有 ' + have : ''}</span></b>
+          <button class="btn sm ghost" data-ashop="give:${it.id}">＋1</button>
+          <button class="btn sm ghost" data-ashop="take:${it.id}">−1</button>
+          ${isEquip ? `<button class="btn sm ${on ? 'primary' : ''}" data-ashop="equip:${it.id}">${on ? '使用中' : '直接裝備'}</button>` : ''}
+          <input class="ain" type="number" style="flex:0 0 92px" data-price="${it.id}"
+            value="${over[it.id] != null ? over[it.id] : it.cost}" title="定價">
+          <button class="btn sm" data-ashop="price:${it.id}">改價</button>
+          <button class="btn sm ghost" data-ashop="deal:${it.id}">${onDeal ? '★特價中' : '設為特價'}</button>
+        </div>
+        ${over[it.id] != null ? `<p class="anote" style="margin:2px 0 0">已指定價 🪙 ${over[it.id]}（原價 ${it.cost}）</p>` : ''}
+      </div>`;
+    };
+    return `<h3>整批操作</h3>
+      <div class="btnrow">
+        <button class="btn" data-a="shopAll">全部商品都給我一份</button>
+        <button class="btn sm" data-a="shopFree">全部免費（價格設 0）</button>
+        <button class="btn sm ghost" data-a="shopReset">價格全部還原</button>
+      </div>
+      <h3 style="margin-top:16px">今日特價</h3>
+      <p class="anote">目前：${auto ? '每天自動抽兩件' : '管理員指定'}　—
+        ${deals.length ? deals.map(d => esc((s.shopItem(d.id) || {}).name || d.id) + `（🪙 ${d.cost}）`).join('、') : '今天沒有特價'}</p>
+      <div class="btnrow">
+        <button class="btn sm ghost" data-a="dealAuto">回到每天自動抽</button>
+        <button class="btn sm ghost" data-a="dealNone">今天不要特價</button>
+      </div>
+      <p class="anote">按商品那排的「設為特價」可以自己指定（可以指定很多件）。</p>
+      <h3 style="margin-top:16px">全部商品（${s.SHOP.length} 件）</h3>
+      ${s.SHOP.map(row).join('')}`;
+  }
+
+  // ---- 任務／簽到／成就 ----
+  function tabQuest() {
+    const s = S(), d = s.day(), done = d.quests || {};
+    const qs = s.questStatus();
+    const week = s.periodQuestStatus('week') || [];
+    const month = s.periodQuestStatus('month') || [];
+    const line = q => `<div class="arow" style="margin:3px 0">
+      <b style="flex:1">${q.done ? '✅ ' : ''}${esc(q.name)}<span class="tiny" style="color:var(--tx3)">　${q.cur}/${q.goal}　+${q.xp} XP　+${q.coin} 🪙</span></b>
+      <button class="btn sm ${done[q.id] ? 'primary' : 'ghost'}" data-aquest="${q.id}">${done[q.id] ? '已標完成' : '標成完成'}</button></div>`;
+    const badges = s.BADGES.map(b => {
+      const got = (s.profile.badges || []).includes(b.id);
+      return `<button class="btn sm ${got ? 'primary' : 'ghost'}" data-abadge="${b.id}" title="${esc(b.desc)}">${got ? '✅' : '○'} ${esc(b.name)}</button>`;
+    }).join(' ');
+    return `<h3>今日任務</h3>
+      <p class="anote">標成完成之後，獎勵會照原本的流程在下次關卡結算時入帳。</p>
+      ${qs.map(line).join('')}
+      <div class="btnrow"><button class="btn sm" data-a="questAll">今日任務全部完成</button>
+        <button class="btn sm ghost" data-a="questNone">全部取消</button></div>
+
+      <h3 style="margin-top:16px">每週任務</h3>
+      ${week.length ? week.map(line).join('') : '<p class="anote">這週沒有任務。</p>'}
+      <h3 style="margin-top:16px">每月任務</h3>
+      ${month.length ? month.map(line).join('') : '<p class="anote">這個月沒有任務。</p>'}
+
+      <h3 style="margin-top:16px">每日簽到</h3>
+      <p class="anote">${d.checkin ? `今天已簽到（+${d.checkin.xp} XP、+${d.checkin.coin} 🪙，第 ${d.checkin.day}/7 天）` : '今天還沒簽到'}</p>
+      <div class="btnrow">
+        <button class="btn sm" data-a="checkinNow">立刻簽到</button>
+        <button class="btn sm ghost" data-a="checkinReset">清掉今天的簽到（可以重簽）</button>
+      </div>
+
+      <h3 style="margin-top:16px">成就（點一下切換）</h3>
+      <p class="anote">目前 ${(s.profile.badges || []).length} / ${s.BADGES.length}。</p>
+      <div class="btnrow" style="gap:5px">${badges}</div>`;
   }
 
   // ---- 闖關地圖 ----
@@ -627,6 +709,21 @@
     const ch = t.closest('[data-achest]');
     if (ch) return bump('chest', ch.dataset.achest);
 
+    const sh = t.closest('[data-ashop]');
+    if (sh) return shopAction(sh.dataset.ashop);
+    const qd = t.closest('[data-aquest]');
+    if (qd) {
+      const id = qd.dataset.aquest;
+      const cur = (S().day().quests || {})[id];
+      S().setQuestDone(id, !cur);
+      return draw();
+    }
+    const bd = t.closest('[data-abadge]');
+    if (bd) {
+      const id = bd.dataset.abadge;
+      S().setBadge(id, !(S().profile.badges || []).includes(id));
+      return draw();
+    }
     const fx = t.closest('[data-afix]');
     if (fx) {
       const i = +fx.dataset.afix;
@@ -680,6 +777,32 @@
         const row = s.chestBag().slice().reverse().find(x => x.tier === id);
         if (row) s.takeChest(row.id);
       }
+    }
+    draw();
+  }
+
+  function shopAction(spec) {
+    const s = S();
+    const cut = spec.indexOf(':');
+    const what = spec.slice(0, cut), id = spec.slice(cut + 1);
+    const inv = s.inventory();
+    if (what === 'give') { inv[id] = (inv[id] || 0) + 1; s.save(true); }
+    if (what === 'take') {
+      inv[id] = Math.max(0, (inv[id] || 0) - 1);
+      if (!inv[id]) delete inv[id];
+      s.save(true);
+    }
+    if (what === 'equip') {
+      if (!inv[id]) inv[id] = 1;                 // 沒有的東西也能直接裝備：先給再裝
+      s.equip(id);
+      if (A().applyTheme) A().applyTheme();
+    }
+    if (what === 'price') s.setPrice(id, val(`[data-price="${id}"]`));
+    if (what === 'deal') {
+      const cur = Array.isArray(s.settings.dealOverride) ? s.settings.dealOverride.slice() : s.dealsToday().map(d => d.id);
+      const k = cur.indexOf(id);
+      k < 0 ? cur.push(id) : cur.splice(k, 1);
+      s.setDeals(cur);
     }
     draw();
   }
@@ -806,6 +929,27 @@
     if (a === 'coin5000') { s.addCoins(5000); redrawApp(); return draw(); }
     if (a === 'allBadges') { s.profile.badges = s.BADGES.map(b => b.id); s.save(true); toast('全部成就已解鎖'); return draw(); }
     if (a === 'noBadges') { s.profile.badges = []; s.save(true); toast('成就已清空'); return draw(); }
+
+    if (a === 'shopAll') {
+      const inv = s.inventory();
+      s.SHOP.forEach(it => { if (!inv[it.id]) inv[it.id] = 1; });
+      s.save(true);
+      toast(`${s.SHOP.length} 件商品都給你了`);
+      return draw();
+    }
+    if (a === 'shopFree') { s.SHOP.forEach(it => s.setPrice(it.id, 0)); toast('全部商品變成 0 元'); return draw(); }
+    if (a === 'shopReset') { s.clearPrices(); toast('價格已還原'); return draw(); }
+    if (a === 'dealAuto') { s.setDeals(null); toast('回到每天自動抽特價'); return draw(); }
+    if (a === 'dealNone') { s.setDeals([]); toast('今天沒有特價'); return draw(); }
+    if (a === 'questAll') { s.questStatus().forEach(q => s.setQuestDone(q.id, true)); toast('今日任務全部標成完成'); return draw(); }
+    if (a === 'questNone') { s.questStatus().forEach(q => s.setQuestDone(q.id, false)); return draw(); }
+    if (a === 'checkinNow') {
+      const r = s.checkIn();
+      toast(r ? `已簽到：+${r.xp} XP、+${r.coin} 🪙` : '今天已經簽到過了');
+      redrawApp();
+      return draw();
+    }
+    if (a === 'checkinReset') { s.resetCheckin(); toast('今天的簽到已清掉'); return draw(); }
 
     if (a === 'search') { wordQ = val('[data-q]'); return draw(); }
     if (a === 'addWord') return addWord();

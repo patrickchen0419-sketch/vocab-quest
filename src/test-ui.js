@@ -2058,6 +2058,57 @@ t('闖關地圖的星星可以用點的循環改', () => {
   assert(S.mapStat(2, 'B').stars === 0, '整級清除沒生效');
 });
 
+t('商店分頁：可以直接給、直接裝備、改價格', () => {
+  goHome();
+  konami();
+  click('[data-atab="shop"]');
+  assert(has('全部商品都給我一份'), '商店分頁內容不對');
+  S.profile.inventory = {};
+  click('[data-ashop="give:heart"]');
+  assert(S.inventory().heart === 1, '給不了道具');
+  // 沒有的主題也要能直接裝備（先給再裝）
+  click('[data-ashop="equip:theme_forest"]');
+  assert(S.equipped('theme') === 'theme_forest', '裝備不了：' + S.equipped('theme'));
+  fill('[data-price="heart"]', 0);
+  click('[data-ashop="price:heart"]');
+  assert(S.priceOf('heart') === 0, '改不了價格：' + S.priceOf('heart'));
+  click('[data-a="shopReset"]');
+  assert(S.priceOf('heart') > 0, '價格沒還原');
+});
+
+t('商店分頁：可以指定今天特價，也可以取消', () => {
+  click('[data-atab="shop"]');
+  click('[data-ashop="deal:heart"]');
+  assert(S.dealsToday().some(d => d.id === 'heart'), '指定不了特價');
+  assert(S.priceOf('heart') === Math.round(S.shopItem('heart').cost * 0.75), '特價沒生效');
+  click('[data-a="dealNone"]');
+  assert(S.dealsToday().length === 0, '取消不了特價');
+  click('[data-a="dealAuto"]');
+  assert(S.dealsToday().length === 2, '回不到每天自動抽');
+});
+
+t('任務分頁：可以直接標完成、切換成就、重簽到', () => {
+  click('[data-atab="quest"]');
+  assert(has('今日任務') && has('每日簽到') && has('成就'), '任務分頁內容不對');
+  click('[data-a="questAll"]');
+  const q0 = S.questStatus()[0];
+  assert((S.day().quests || {})[q0.id], '任務沒被標成完成');
+  click('[data-a="questNone"]');
+  assert(!(S.day().quests || {})[q0.id], '取消不了');
+  const b0 = S.BADGES[0].id;
+  S.setBadge(b0, false);
+  click('[data-atab="quest"]');
+  click(`[data-abadge="${b0}"]`);
+  assert(S.profile.badges.includes(b0), '成就切換不了');
+  click(`[data-abadge="${b0}"]`);
+  assert(!S.profile.badges.includes(b0), '成就取消不了');
+  click('[data-a="checkinNow"]');
+  assert(S.day().checkin, '簽不了到');
+  click('[data-atab="quest"]');
+  click('[data-a="checkinReset"]');
+  assert(!S.day().checkin, '清不掉簽到');
+});
+
 t('管理員面板可以一鍵修掉誤觸的答錯', () => {
   S.reset();
   const i = 100;
